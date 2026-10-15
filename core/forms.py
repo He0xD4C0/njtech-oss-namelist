@@ -171,6 +171,8 @@ CONFIG_FIELDS = {
 
 class ConfigurationForm(forms.Form):
     restore_schedule = forms.ChoiceField(
+        label="恢复演练频率 / Restore drill frequency",
+        help_text="仅在服务器独立备份 S3 配置就绪后生效；保存频率不会启用未配置的备份。 / Effective only after independent server backup configuration is ready.",
         choices=[
             ("off", "关闭 / Off"),
             ("weekly", "每周 / Weekly"),

@@ -7,6 +7,7 @@ import secrets
 import socket
 import subprocess
 import tempfile
+import time
 from pathlib import Path
 from urllib.error import HTTPError
 from urllib.request import ProxyHandler, Request, build_opener
@@ -16,7 +17,7 @@ PROJECT = "njtech-ops-smoke"
 urlopen = build_opener(ProxyHandler({})).open
 
 
-def main():
+def main(configured):
     environment = os.environ | {
         "APP_IMAGE": "njtech-ops-web:local",
         "SCANNER_IMAGE": "njtech-ops-scanner:local",
@@ -33,6 +34,8 @@ def main():
         raise RuntimeError("The smoke project already has containers; inspect ownership before cleanup/reuse")
     for port in (18000, 18025):
         with socket.socket() as probe:
+            # Sequential scenarios can leave this process's HTTP sockets in TIME_WAIT.
+            probe.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
             probe.bind(("127.0.0.1", port))
     with tempfile.TemporaryDirectory(prefix="njtech-ops-smoke-") as directory:
         scratch = Path(directory)
@@ -46,13 +49,18 @@ def main():
             "BACKUP_CIPHER_FILE": "/run/secrets/backup_cipher",
             "RESTORE_RESERVE_BYTES": str(100 * 1024**2),
         }
+        if not configured:
+            backup = {
+                "BACKUP_ENABLED": "1", "BACKUP_REPO_TYPE": "s3",
+                "BACKUP_S3_ENDPOINT": "", "BACKUP_S3_BUCKET": "", "BACKUP_S3_REGION": "",
+            }
         overlay = scratch / "compose-smoke.json"
         overlay.write_text(
             json.dumps(
                 {
                     "services": {
-                        "db": {"environment": backup, "secrets": ["backup_cipher"]},
-                        "maintenance": {"environment": backup, "secrets": ["backup_cipher"]},
+                        "db": {"environment": backup, "secrets": ["backup_cipher"] if configured else []},
+                        "maintenance": {"environment": backup, "secrets": ["backup_cipher"] if configured else []},
                         "web": {"environment": {"DJANGO_DEBUG": "0"}},
                     },
                     "secrets": {"backup_cipher": {"file": str(cipher)}},
@@ -189,6 +197,38 @@ def main():
             browser_smoke(run)
             logs = run("logs", "--no-color", "web", capture=True)
             assert marker not in logs.stdout + logs.stderr, "Credential marker leaked into access logs"
+            mode = run("exec", "-T", "-u", "postgres", "db", "psql", "-d", "postgres", "-Atc", "SHOW archive_mode", capture=True).stdout.strip()
+            assert mode == ("on" if configured else "off"), mode
+            if not configured:
+                run("up", "--no-build", "--detach", "maintenance")
+                run(
+                    "exec", "-T", "maintenance", "python", "manage.py", "shell", "-c",
+                    "from core.tasks import restore_drill; from core.runtime import set_setting; "
+                    "from core.models import SyncRun; from django.core.cache import cache; "
+                    "before=SyncRun.objects.count(); "
+                    "set_setting('restore_schedule','weekly'); assert restore_drill()=='not-configured'; "
+                    "set_setting('restore_schedule','monthly'); assert restore_drill()=='not-configured'; "
+                    "set_setting('restore_schedule','quarterly'); assert restore_drill()=='not-configured'; "
+                    "assert SyncRun.objects.count()==before; assert not cache.get('restore-drill-running')",
+                )
+                run(
+                    "exec", "-T", "maintenance", "python", "-c",
+                    "import subprocess; from pathlib import Path; "
+                    "assert not Path('/etc/pgbackrest/pgbackrest.conf').exists(); "
+                    "assert not Path('/var/lib/restore/backup-state.json').exists(); "
+                    "assert not list(Path('/var/lib/restore').glob('drill-*')); "
+                    "results=[subprocess.run(c, capture_output=True) for c in "
+                    "[['/app/deploy/backup/backup.sh','full'],['/app/deploy/backup/restore-drill.sh']]]; "
+                    "assert all(r.returncode==2 for r in results)",
+                )
+                run(
+                    "exec", "-T", "maintenance", "python", "-c",
+                    "from pathlib import Path; "
+                    "assert not any(b'/app/deploy/backup/scheduler.py' in p.read_bytes().split(bytes([0])) "
+                    "for p in Path('/proc').glob('[0-9]*/cmdline') if p.exists())",
+                )
+                print(json.dumps({"unconfigured_smoke": "passed", "archive_mode": mode, "restore": "not-configured", "scheduler": "absent"}))
+                return
             run(
                 "run",
                 "--rm",
@@ -198,6 +238,23 @@ def main():
                 "full",
                 timeout=1800,
             )
+            # A configured repository failure must retain WAL, never switch archiving off.
+            original_mode = run("exec", "-T", "db", "stat", "-c", "%a", "/var/lib/pgbackrest/smoke", capture=True).stdout.strip()
+            run("exec", "-T", "db", "chmod", "000", "/var/lib/pgbackrest/smoke")
+            try:
+                run("exec", "-T", "-u", "postgres", "db", "psql", "-d", "postgres", "-Atc", "SELECT pg_create_restore_point('namelist_smoke_archive_probe'); SELECT pg_switch_wal()")
+                failed_wal = ""
+                for _ in range(30):
+                    failed_wal = run("exec", "-T", "-u", "postgres", "db", "psql", "-d", "postgres", "-Atc", "SELECT last_failed_wal FROM pg_stat_archiver", capture=True).stdout.strip()
+                    if failed_wal:
+                        break
+                    time.sleep(1)
+                assert len(failed_wal) == 24, failed_wal
+                run("exec", "-T", "db", "test", "-f", f"/var/lib/postgresql/data/pg_wal/{failed_wal}")
+                run("exec", "-T", "db", "test", "-f", f"/var/lib/postgresql/data/pg_wal/archive_status/{failed_wal}.ready")
+                assert run("exec", "-T", "-u", "postgres", "db", "psql", "-d", "postgres", "-Atc", "SHOW archive_mode", capture=True).stdout.strip() == "on"
+            finally:
+                run("exec", "-T", "db", "chmod", original_mode, "/var/lib/pgbackrest/smoke")
             run(
                 "run",
                 "--rm",
@@ -233,6 +290,7 @@ def main():
                         "mailpit": "captured",
                         "access_logs": "credential-markers-absent",
                         "encrypted_backup": "full+diff",
+                        "configured_repository_failure": "WAL retained; archive_mode=on",
                         "offline_restore": evidence,
                     },
                     indent=2,
@@ -332,4 +390,5 @@ def browser_smoke(run):
 
 
 if __name__ == "__main__":
-    main()
+    main(configured=False)
+    main(configured=True)

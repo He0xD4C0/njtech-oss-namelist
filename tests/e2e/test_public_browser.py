@@ -1,5 +1,6 @@
 import re
 from datetime import timedelta
+from unittest.mock import patch
 from urllib.parse import urlsplit
 
 import pytest
@@ -13,6 +14,28 @@ from core.models import PolicyConsent, User
 from repositories.models import Repository, Submission
 
 pytestmark = [pytest.mark.django_db(transaction=True), pytest.mark.e2e]
+
+
+def test_backup_frequency_save_does_not_enable_unconfigured_backup(page, live_server, session_login, monkeypatch):
+    from core.runtime import get_setting
+    from core.tasks import restore_drill
+
+    monkeypatch.setenv("SITE_ENVIRONMENT", "staging")
+    monkeypatch.setenv("BACKUP_ENABLED", "1")
+    monkeypatch.setenv("BACKUP_S3_BUCKET", "")
+    user = User.objects.create_superuser("backup-admin", "backup@example.invalid", "Browser-test-password-421")
+    EmailAddress.objects.create(user=user, email=user.email, verified=True, primary=True)
+    session_login(user)
+    page.goto(live_server.url + "/manage/settings/")
+    expect(page.get_by_text("仅在服务器独立备份 S3 配置就绪后生效", exact=False)).to_be_visible()
+    page.get_by_label("恢复演练频率 / Restore drill frequency").select_option("quarterly")
+    page.get_by_role("button", name="保存 / Save", exact=True).click()
+    expect(page.get_by_label("恢复演练频率 / Restore drill frequency")).to_have_value("quarterly")
+    assert get_setting("restore_schedule") == "quarterly"
+    with patch("core.tasks.subprocess.run") as run, patch("core.tasks.record_failure") as failure:
+        assert restore_drill() == "not-configured"
+        run.assert_not_called()
+        failure.assert_not_called()
 
 
 @pytest.fixture

@@ -204,6 +204,15 @@ def restore_drill():
     schedule = get_setting("restore_schedule", "monthly")
     if schedule == "off":
         return "disabled"
+    from deploy.backup.readiness import readiness
+
+    try:
+        state = readiness()
+    except (ValueError, OSError):
+        record_failure("restore")
+        return "failed"
+    if state != "ready":
+        return state
     last = SyncRun.objects.filter(kind="restore", status="success").order_by("-created_at").first()
     from dateutil.relativedelta import relativedelta
 

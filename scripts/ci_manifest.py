@@ -33,6 +33,7 @@ BUNDLE_FILES = (
     "deploy/backup/backup.sh",
     "deploy/backup/maintenance.sh",
     "deploy/backup/render-config.py",
+    "deploy/backup/readiness.py",
     "deploy/backup/restore-drill.sh",
     "deploy/backup/restore.py",
     "deploy/backup/scheduler.py",

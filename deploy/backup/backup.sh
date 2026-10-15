@@ -1,7 +1,7 @@
 #!/bin/sh
 set -eu
 case "${1:-}" in full|diff) backup_type=$1 ;; *) echo 'usage: backup.sh full|diff' >&2; exit 64 ;; esac
-[ "${BACKUP_ENABLED:-1}" = 1 ] || { echo 'Backups are explicitly disabled' >&2; exit 1; }
+python /app/deploy/backup/readiness.py
 python /app/deploy/backup/render-config.py
 mkdir -p /var/spool/pgbackrest/lock
 exec 9>/var/spool/pgbackrest/lock/namelist-backup.lock

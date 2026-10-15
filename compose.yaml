@@ -24,6 +24,7 @@ x-app-environment: &app-environment
   TZ: Asia/Shanghai
 
 x-backup-environment: &backup-environment
+  SITE_ENVIRONMENT: ${SITE_ENVIRONMENT:-staging}
   BACKUP_ENABLED: ${BACKUP_ENABLED:-1}
   BACKUP_REPO_TYPE: ${BACKUP_REPO_TYPE:-s3}
   BACKUP_REPO_PATH: ${BACKUP_REPO_PATH:-/namelist/staging}
@@ -31,9 +32,9 @@ x-backup-environment: &backup-environment
   BACKUP_S3_BUCKET: ${BACKUP_S3_BUCKET:-}
   BACKUP_S3_REGION: ${BACKUP_S3_REGION:-}
   BACKUP_S3_URI_STYLE: ${BACKUP_S3_URI_STYLE:-path}
-  BACKUP_S3_KEY_FILE: /run/secrets/backup_s3_key
-  BACKUP_S3_SECRET_FILE: /run/secrets/backup_s3_secret
-  BACKUP_CIPHER_FILE: /run/secrets/backup_cipher
+  BACKUP_S3_KEY_FILE: /run/backup-secrets/backup_s3_key
+  BACKUP_S3_SECRET_FILE: /run/backup-secrets/backup_s3_secret
+  BACKUP_CIPHER_FILE: /run/backup-secrets/backup_cipher
   BACKUP_STANZA: namelist
   BACKUP_PG_PATH: /var/lib/postgresql/data
   BACKUP_PG_SOCKET: /var/run/postgresql
@@ -80,12 +81,17 @@ services:
       POSTGRES_INITDB_ARGS: --data-checksums --auth-host=scram-sha-256
       APP_DB_USER: ${POSTGRES_USER:-namelist}
       APP_DB_PASSWORD_FILE: /run/secrets/db_password
-    secrets: [db_admin_password, db_password, backup_s3_key, backup_s3_secret, backup_cipher]
+    secrets: [db_admin_password, db_password]
     volumes:
       - database:/var/lib/postgresql/data
       - pg_socket:/var/run/postgresql
       - backup_spool:/var/spool/pgbackrest
       - local_backups:/var/lib/pgbackrest
+      - type: bind
+        source: '${SECRET_DIR:-./secrets}/backup'
+        target: /run/backup-secrets
+        read_only: true
+        bind: {create_host_path: false, selinux: z}
     tmpfs: ['/etc/pgbackrest:uid=999,gid=999,mode=0700', '/var/log/pgbackrest:uid=999,gid=999,mode=0700']
     networks: [backend, backup_egress]
     healthcheck:
@@ -165,13 +171,18 @@ services:
     environment:
       <<: [*app-environment, *backup-environment]
       WORK_ROOT: /var/lib/restore/work
-    secrets: [django_secret, app_encryption_key, bootstrap_secret, db_password, backup_s3_key, backup_s3_secret, backup_cipher]
+    secrets: [django_secret, app_encryption_key, bootstrap_secret, db_password]
     volumes:
       - database:/var/lib/postgresql/data:ro
       - pg_socket:/var/run/postgresql
       - backup_spool:/var/spool/pgbackrest
       - local_backups:/var/lib/pgbackrest
       - restore_scratch:/var/lib/restore
+      - type: bind
+        source: '${SECRET_DIR:-./secrets}/backup'
+        target: /run/backup-secrets
+        read_only: true
+        bind: {create_host_path: false, selinux: z}
     tmpfs: ['/tmp:size=512m,mode=1777', '/etc/pgbackrest:uid=999,gid=999,mode=0700', '/var/log/pgbackrest:uid=999,gid=999,mode=0700']
     mem_limit: 8g
     cpus: '2'
@@ -198,6 +209,3 @@ secrets:
   bootstrap_secret: {file: '${SECRET_DIR:-./secrets}/bootstrap_secret'}
   db_password: {file: '${SECRET_DIR:-./secrets}/db_password'}
   db_admin_password: {file: '${SECRET_DIR:-./secrets}/db_admin_password'}
-  backup_s3_key: {file: '${SECRET_DIR:-./secrets}/backup_s3_key'}
-  backup_s3_secret: {file: '${SECRET_DIR:-./secrets}/backup_s3_secret'}
-  backup_cipher: {file: '${SECRET_DIR:-./secrets}/backup_cipher'}

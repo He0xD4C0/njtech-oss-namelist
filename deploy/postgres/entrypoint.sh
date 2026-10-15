@@ -1,14 +1,14 @@
 #!/bin/sh
 set -eu
-if [ "${BACKUP_ENABLED:-1}" = 1 ]; then
+state=0
+python3 /app/deploy/backup/readiness.py || state=$?
+if [ "$state" = 0 ]; then
     python3 /app/deploy/backup/render-config.py
     chown postgres:postgres /etc/pgbackrest/pgbackrest.conf
     set -- "$@" -c "archive_command=pgbackrest --stanza=${BACKUP_STANZA:-namelist} archive-push %p"
-elif [ "${BACKUP_ENABLED:-}" = 0 ]; then
-    # Only the explicit local overlay disables WAL archiving.
+elif [ "$state" = 2 ]; then
     set -- "$@" -c archive_mode=off
 else
-    echo 'BACKUP_ENABLED must be 0 or 1' >&2
-    exit 1
+    exit "$state"
 fi
 exec /usr/local/bin/docker-entrypoint.sh "$@"

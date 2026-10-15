@@ -3,6 +3,7 @@ import json
 import os
 import re
 import subprocess
+import sys
 import tarfile
 import tempfile
 import unittest
@@ -20,6 +21,7 @@ def module(relative, name):
 
 
 config = module("deploy/backup/render-config.py", "backup_config")
+readiness = module("deploy/backup/readiness.py", "backup_readiness")
 restore = module("deploy/backup/restore.py", "backup_restore")
 manifest = module("scripts/ci_manifest.py", "ci_manifest")
 runtime = module("deploy/validate-compose.py", "compose_runtime")
@@ -87,6 +89,63 @@ class BackupConfigurationTests(unittest.TestCase):
         ):
             with self.assertRaises(ValueError):
                 self.render(**changes)
+
+    def test_backup_readiness_complete_missing_partial_and_disabled(self):
+        with patch.dict(os.environ, self.environment, clear=True):
+            self.assertEqual(readiness.readiness(), "ready")
+        with patch.dict(os.environ, {}, clear=True):
+            self.assertEqual(readiness.readiness(), "not-configured")
+        for field in self.environment:
+            with self.subTest(field=field), patch.dict(os.environ, self.environment | {field: ""}, clear=True):
+                self.assertEqual(readiness.readiness(), "not-configured")
+        for filename in ("cipher", "s3-key", "s3-secret"):
+            path = self.root / filename
+            value = path.read_text()
+            path.write_text("")
+            with patch.dict(os.environ, self.environment, clear=True):
+                self.assertEqual(readiness.readiness(), "not-configured")
+            path.unlink()
+            with patch.dict(os.environ, self.environment, clear=True):
+                self.assertEqual(readiness.readiness(), "not-configured")
+            path.write_text(value)
+        with patch.dict(os.environ, {"BACKUP_ENABLED": "0"}, clear=True):
+            self.assertEqual(readiness.readiness(), "disabled")
+
+    def test_invalid_or_unreadable_configuration_is_not_silently_skipped(self):
+        for changes in (
+            {"BACKUP_ENABLED": "invalid"}, {"BACKUP_STANZA": "[global]"},
+            {"BACKUP_S3_BUCKET": "bucket\nsecret-value", "BACKUP_REPO_PATH": ""},
+            {"BACKUP_S3_ENDPOINT": "https://host/path"}, {"BACKUP_CIPHER_FILE": str(self.root)},
+        ):
+            with self.subTest(changes=changes), patch.dict(os.environ, self.environment | changes, clear=True):
+                with self.assertRaises((ValueError, OSError)):
+                    readiness.readiness()
+        with patch.dict(os.environ, self.environment, clear=True), patch.object(Path, "read_text", side_effect=PermissionError):
+            with self.assertRaises(PermissionError):
+                readiness.readiness()
+
+    def test_production_cannot_start_with_backups_disabled_or_unconfigured(self):
+        for changes in ({"BACKUP_ENABLED": "0"}, {"BACKUP_S3_BUCKET": ""}, {"BACKUP_REPO_TYPE": "posix", "BACKUP_REPO_PATH": "/var/lib/pgbackrest/test"}):
+            with patch.dict(os.environ, self.environment | changes | {"SITE_ENVIRONMENT": "production"}, clear=True):
+                with self.assertRaisesRegex(ValueError, "Production requires"):
+                    readiness.readiness()
+        with patch.dict(os.environ, self.environment | {"SITE_ENVIRONMENT": "production"}, clear=True):
+            self.assertEqual(readiness.readiness(), "ready")
+
+    def test_readiness_cli_is_sanitized_and_performs_no_remote_probe(self):
+        for changes, code, output in (
+            ({}, 0, "ready"), ({"BACKUP_S3_BUCKET": ""}, 2, "not-configured"),
+            ({"BACKUP_ENABLED": "0"}, 2, "disabled"),
+            ({"BACKUP_S3_BUCKET": "injection-secret\nvalue"}, 1, ""),
+        ):
+            result = subprocess.run(
+                [sys.executable, str(ROOT / "deploy/backup/readiness.py")],
+                env=self.environment | changes, capture_output=True, text=True, check=False, timeout=10,
+            )
+            self.assertEqual(result.returncode, code)
+            self.assertEqual(result.stdout.strip(), output)
+            for secret in ("injection-secret", "test-secret", "a" * 48):
+                self.assertNotIn(secret, result.stdout + result.stderr)
 
 
 class RestoreIsolationTests(unittest.TestCase):
@@ -436,6 +495,40 @@ class ComposeBoundaryTests(unittest.TestCase):
             secrets = {item["source"] for item in service.get("secrets", [])}
             if name not in {"db", "maintenance"}:
                 self.assertFalse(secrets & {"backup_s3_key", "backup_s3_secret", "backup_cipher"})
+            mounts = [m for m in service.get("volumes", []) if m["target"] == "/run/backup-secrets"]
+            self.assertEqual(len(mounts), 1 if name in {"db", "maintenance"} else 0)
+        self.assertFalse({"backup_s3_key", "backup_s3_secret", "backup_cipher"} & self.document["secrets"].keys())
+
+    def test_backup_directory_isolation_and_production_gate(self):
+        from copy import deepcopy
+
+        for changes in (
+            {"source": "/srv/namelist/production/secrets/backup"}, {"read_only": False},
+            {"bind": {"create_host_path": True}},
+        ):
+            wrong = deepcopy(self.document)
+            mount = next(m for m in wrong["services"]["maintenance"]["volumes"] if m["target"] == "/run/backup-secrets")
+            mount.update(changes)
+            with self.assertRaisesRegex(ValueError, "isolated read-only directory"):
+                runtime.validate(wrong, "staging")
+        wrong = deepcopy(self.document)
+        wrong["services"]["db"]["environment"]["SITE_ENVIRONMENT"] = "production"
+        with self.assertRaisesRegex(ValueError, "Backup environment belongs"):
+            runtime.validate(wrong, "staging")
+        production = json.loads(json.dumps(self.document).replace("namelist-staging", "namelist-production").replace("/namelist/staging", "/namelist/production"))
+        for name in ("db", "maintenance"):
+            production["services"][name]["environment"]["SITE_ENVIRONMENT"] = "production"
+        with self.assertRaisesRegex(ValueError, "Production requires configured"):
+            runtime.validate(production, "production")
+        for name in ("db", "maintenance"):
+            production["services"][name]["environment"].update({
+                "BACKUP_S3_ENDPOINT": "storage.example.invalid", "BACKUP_S3_BUCKET": "test-bucket",
+                "BACKUP_S3_REGION": "test-region",
+            })
+        runtime.validate(production, "production")
+        production["services"]["db"]["environment"]["BACKUP_ENABLED"] = "0"
+        with self.assertRaisesRegex(ValueError, "Production requires configured"):
+            runtime.validate(production, "production")
 
     def test_restore_mounts_primary_read_only(self):
         mounts = self.document["services"]["maintenance"]["volumes"]

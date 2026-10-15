@@ -23,12 +23,14 @@ PostgreSQL 与 Redis 不映射宿主端口。DB只加入内部 backend 和独立
 | `bootstrap_secret` | 首次激活一次性环境凭据 |
 | `db_password` | 无超级权限的应用角色密码 |
 | `db_admin_password` | PostgreSQL 管理角色密码，应用容器不挂载 |
-| `backup_s3_key` / `backup_s3_secret` | 独立异地备份存储身份，不是头像身份 |
-| `backup_cipher` | 至少 32 字符高熵 pgBackRest 客户端加密口令 |
+| `backup/backup_s3_key` / `backup/backup_s3_secret` | 独立异地备份存储身份，不是头像身份 |
+| `backup/backup_cipher` | 至少 32 字符高熵 pgBackRest 客户端加密口令 |
 
 使用密码管理器生成并站外保管；不要将任何值、完整容器 inspect、带 Secrets 的环境导出或 pgBackRest 配置贴入工单。Fernet、备份口令及 S3 身份也必须站外备存。只有备份文件而没有解密密钥不构成可恢复备份。
 
 Compose 的 `file:` secret 是 bind mount，不是加密保险库，也不保证把源文件改为声明的 uid/mode。目录由受信服务器用户管理并限制 0700；被逐文件挂载的文件应允许容器的 app(uid 10001) 或 postgres(uid 999)读取。可用受保护目录内的只读 0444文件（目录阻止其他宿主用户进入），或受控 ACL；上线检查两个非 root 容器实际能读且不能写。Docker 操作权限本身相当于主机管理权限。
+
+备份子目录 `${SECRET_DIR}/backup` 单独只读挂载到 DB 和维护容器的 `/run/backup-secrets`，共享 SELinux 标签，不暴露其他应用密钥。宿主 Secrets 父目录保持 0700；子目录使用 0755，文件使用 0444，使容器 uid 999 可读取而宿主其他用户仍无法穿过父目录。目录必须预先建立，Compose 不自动创建路径。预发布可保留空子目录，不创建虚假凭据。旧安装应复制原有三个备份文件到子目录、验证新挂载后再由操作者决定清理旧文件，不自动覆盖密钥。
 
 服务端应用修复命令使用镜像中的 CLI，例如通过 `docker compose run --rm --no-deps web python manage.py help` 查看配置修复实际参数。不要重新开启永久公网 bootstrap bypass 来修复 SMTP/Turnstile。
 
@@ -40,9 +42,15 @@ Compose 的 `file:` secret 是 bind mount，不是加密保险库，也不保证
 
 ## pgBackRest 备份
 
+`BACKUP_ENABLED=1` 仅表示启用意愿。必需参数或备份文件缺失、为空时，预发布仍可启动，但 WAL 归档关闭，备份计时器不启动，手动备份和恢复演练均不执行；GUI 保存的演练频率不能绕过门槛。此时**没有备份保护**。非法非空配置及读取权限错误仍报脱敏错误；生产部署始终要求配置完整且启用独立 S3 备份。
+
+就绪检查只验证本地配置，不探测网络、不使用头像 S3、不产生“配置缺失”故障告警。配置完整后网络、鉴权、存储故障仍按失败处理并告警，保留待归档 WAL，不自动切换为关闭。直接脚本的未配置/关闭退出码为 2，非法配置为 1；恢复任务提前返回 `not-configured` / `disabled`，不创建恢复锁或目录。
+
+补齐 `runtime.env` 的 S3 参数和上述三个文件后，使用相同摘要重新创建 `db`、`maintenance` 服务，再执行首次全量备份并确认 `stanza-create`、`check`、备份成功。仅修改 GUI 或填好文件而不重新创建服务，不代表 WAL 归档已经开启。
+
 远端 S3 必须是独立站外服务；备份本机同一个磁盘不算异地。`BACKUP_REPO_TYPE=s3`，`BACKUP_REPO_PATH` 分别固定 `/namelist/staging` 与 `/namelist/production`；部署检查拒绝误接另一套环境。endpoint 填 hostname 而非 URL；开启 TLS 校验，没有生产跳过证书验证选项。使用 `aes-256-cbc` 客户端加密、zstd 压缩。
 
-维护容器每天上海时间 03:15 备份、周日全量，PostgreSQL 持续 WAL归档。首次备份和错过一周全量会自动选 full。首次人工验证：
+配置就绪后，维护容器每天上海时间 03:15 备份、周日全量，PostgreSQL 持续 WAL归档。首次备份和错过一周全量会自动选 full。首次人工验证：
 
 ```sh
 docker compose --project-name namelist-staging --env-file /srv/namelist/staging/runtime.env --env-file images.env -f compose.yaml run --rm --no-deps maintenance /app/deploy/backup/backup.sh full

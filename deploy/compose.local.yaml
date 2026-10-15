@@ -1,6 +1,7 @@
 # Explicit development-only overlay. No production server secret files are mounted.
 # docker compose -p njtech-ops-smoke -f compose.yaml -f deploy/compose.local.yaml up --build
 x-local-env: &local-env
+  SITE_ENVIRONMENT: staging
   DJANGO_DEBUG: '1'
   DJANGO_ALLOWED_HOSTS: localhost,127.0.0.1,testserver
   CSRF_TRUSTED_ORIGINS: http://localhost:18000,http://127.0.0.1:18000
@@ -23,7 +24,9 @@ x-local-env: &local-env
   TZ: Asia/Shanghai
 services:
   db:
+    volumes: [local_backup_secrets:/run/backup-secrets:ro]
     environment:
+      SITE_ENVIRONMENT: staging
       BACKUP_ENABLED: '0'
       POSTGRES_PASSWORD_FILE: ''
       POSTGRES_PASSWORD: local-admin-not-for-deployment
@@ -48,6 +51,7 @@ services:
     environment: *local-env
     secrets: !reset []
   maintenance:
+    volumes: [local_backup_secrets:/run/backup-secrets:ro]
     profiles: [ops]
     environment:
       <<: *local-env
@@ -59,3 +63,5 @@ services:
     ports: ['127.0.0.1:18025:8025']
     networks: [backend, egress]
     # Runtime SMTP: host=mailpit, port=1025, security=none; it is NOT a real delivery proof.
+volumes:
+  local_backup_secrets: {}

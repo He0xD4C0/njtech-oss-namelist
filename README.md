@@ -36,7 +36,7 @@ docker compose --env-file .env.example config --quiet
 docker compose -f compose.yaml -f deploy/compose.local.yaml config --quiet
 ```
 
-容器级验证先构建 `web`、`postgres`、`maintenance` 为 `njtech-ops-<target>:local`，安装 Playwright Chromium 后运行 `.venv/bin/python deploy/tests/smoke_stack.py`。脚本独占 `njtech-ops-smoke` 项目，使用 `DEBUG=0` 的真实 Gunicorn 和只读镜像，验证静态资源的 MIME、gzip、HEAD、条件请求及 404，检查桌面/手机与管理后台编辑器，再验证 Mailpit、日志脱敏、加密全量/差异备份及停库后的独立恢复；结束时仅删除该项目的测试卷。
+容器级验证先构建 `web`、`postgres`、`maintenance` 为 `njtech-ops-<target>:local`，安装 Playwright Chromium 后运行 `.venv/bin/python deploy/tests/smoke_stack.py`。脚本独占 `njtech-ops-smoke` 项目，分别验证未配置备份仍可启动但不执行备份/演练，以及配置完整后的加密全量/差异、存储故障保留 WAL 和停库隔离恢复。两种场景均检查 `DEBUG=0` 的只读 Gunicorn、静态 MIME/gzip/HEAD/条件请求/404、桌面/手机、后台编辑器、Mailpit 和日志脱敏；结束时仅删除该项目的测试卷。
 
 真实扫描验证参见 [licensecheck/README.md](licensecheck/README.md)。浏览器测试先安装 Chromium：`uv run --frozen playwright install chromium`。CI 分别要求普通测试、真实 ScanCode 测试与浏览器测试；本地结果不等于远端 CI、真实平台 OAuth 或部署验收。
 

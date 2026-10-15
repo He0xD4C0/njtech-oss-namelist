@@ -27,7 +27,9 @@ CI 仅由 `dev-*` 标签触发，负责测试与构建交付；不连接服务�
 
 Gunicorn 访问日志只记录连接 IP、方法、状态和耗时，不记录 URL、query 或 Referer；不得恢复 request/referer 格式，避免凭据泄漏。域名、证书、HTTPS、入口超时和上传限制由外部基础设施负责，仓库只交付应用 HTTP 服务。
 
-备份凭据仅挂载给 DB 和维护容器：`BACKUP_S3_KEY_FILE`、`BACKUP_S3_SECRET_FILE`、`BACKUP_CIPHER_FILE`。它们不存应用数据库、不进入 Web/扫描容器、不与头像 S3 共用。私有 pgBackRest 配置启动时生成在 tmpfs，权限 0600，不打印秘密。
+备份凭据仅挂载给 DB 和维护容器：`${SECRET_DIR}/backup` → `/run/backup-secrets`，内含 `backup_s3_key`、`backup_s3_secret`、`backup_cipher`，由对应 `_FILE` 环境变量读取。挂载只读、共享 SELinux 标签、不自动创建宿主目录，不与应用密钥目录整目录共挂载。它们不存应用数据库、不进入 Web/扫描容器、不与头像 S3 共用。私有 pgBackRest 配置仅在就绪时生成在 tmpfs，权限 0600，不打印秘密。
+
+共享标准库检查 `deploy/backup/readiness.py` 返回 `disabled` / `not-configured` / `ready`；CLI 对 ready 返回 0，前两种返回 2，非法非空配置或权限错误返回 1。检查不联网，生产环境拒绝非 ready 或非 S3。预发布未配置时，数据库关闭 WAL 归档、维护进程只运行 Worker，不启动备份计时器；手动脚本与恢复任务同样提前停止，不记录虚假失败或告警。GUI 仅保存演练频率，不改变就绪判定。已完整配置后的网络或鉴权故障继续报错、告警并保留 WAL，不静默禁用。补齐配置后须重新创建数据库和维护服务，并验证首次全量备份。
 
 ## 队列、周期与目录
 

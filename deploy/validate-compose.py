@@ -13,11 +13,32 @@ def validate(document, environment):
         raise ValueError("Debug is not allowed in a deployed environment")
     for name in ("db", "maintenance"):
         values = services[name]["environment"]
-        if values["BACKUP_ENABLED"] != "1" or values["BACKUP_REPO_TYPE"] != "s3":
+        if values["BACKUP_ENABLED"] not in {"0", "1"} or values["BACKUP_REPO_TYPE"] != "s3":
             raise ValueError("Deployment requires independent S3 backups")
+        if values.get("SITE_ENVIRONMENT") != environment:
+            raise ValueError("Backup environment belongs to another environment")
+        if environment == "production" and (
+            values["BACKUP_ENABLED"] != "1"
+            or not all(values.get(key) for key in ("BACKUP_S3_ENDPOINT", "BACKUP_S3_BUCKET", "BACKUP_S3_REGION"))
+        ):
+            raise ValueError("Production requires configured independent S3 backups")
         if values["BACKUP_REPO_PATH"] != f"/namelist/{environment}":
             raise ValueError("Backup prefix belongs to another environment")
     expected = Path(f"/srv/namelist/{environment}/secrets")
+    for name, service in services.items():
+        mounts = [mount for mount in service.get("volumes", []) if mount["target"] == "/run/backup-secrets"]
+        if name in {"db", "maintenance"}:
+            if len(mounts) != 1:
+                raise ValueError("Backup credentials require an isolated read-only directory")
+            mount = mounts[0]
+            if (
+                mount["type"] != "bind" or Path(mount["source"]).resolve() != expected / "backup"
+                or not mount.get("read_only") or mount.get("bind", {}).get("create_host_path") is not False
+                or mount.get("bind", {}).get("selinux") != "z"
+            ):
+                raise ValueError("Backup credentials require an isolated read-only directory")
+        elif mounts:
+            raise ValueError("Backup credentials belong only to database and maintenance")
     for secret in document["secrets"].values():
         if Path(secret["file"]).resolve().parent != expected:
             raise ValueError("Server secrets must be isolated in this environment's protected directory")

@@ -20,6 +20,8 @@ Actions artifact `ci-bundle` 保留 90 天，下载后解压其中的 `ci-bundle
 
 例子使用 `staging`、`APP_PORT=18000`；生产需同步改为 `namelist-production`、`SITE_ENVIRONMENT=production`、`APP_PORT=28000`、独立 Secrets 目录及 `/namelist/production` 备份前缀。Web 只绑定宿主 `127.0.0.1`，PostgreSQL 与 Redis 不发布端口。`images.env` 无需编辑，作为第二个环境文件覆盖模板中的镜像占位符。
 
+预发布允许备份 S3 尚未配置，但须按运维手册预先建立受保护的空 `SECRET_DIR/backup` 子目录。此时即使 `BACKUP_ENABLED=1` 或 GUI 保存了演练频率，也没有备份、恢复演练或 WAL 归档保护；不能将应用启动成功视为备份验收。生产配置不允许此例外。补齐备份后须重新创建 DB/维护服务并完成首次全量备份验证。
+
 **宿主同名环境变量优先于环境文件。** 使用无开发变量、无 `COMPOSE_*` 自定义项的专用终端；不要从已 export 开发配置的 shell 启动。不要公开打印带敏感配置的完整 Compose 输出。
 
 ```sh
