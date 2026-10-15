@@ -502,9 +502,14 @@ class ComposeBoundaryTests(unittest.TestCase):
     def test_backup_directory_isolation_and_production_gate(self):
         from copy import deepcopy
 
+        omitted_false = deepcopy(self.document)
+        for name in ("db", "maintenance"):
+            mount = next(m for m in omitted_false["services"][name]["volumes"] if m["target"] == "/run/backup-secrets")
+            mount["bind"].pop("create_host_path", None)
+        runtime.validate(omitted_false, "staging")
         for changes in (
             {"source": "/srv/namelist/production/secrets/backup"}, {"read_only": False},
-            {"bind": {"create_host_path": True}},
+            {"bind": {"create_host_path": True, "selinux": "z"}},
         ):
             wrong = deepcopy(self.document)
             mount = next(m for m in wrong["services"]["maintenance"]["volumes"] if m["target"] == "/run/backup-secrets")

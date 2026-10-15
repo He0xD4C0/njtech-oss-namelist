@@ -33,7 +33,8 @@ def validate(document, environment):
             mount = mounts[0]
             if (
                 mount["type"] != "bind" or Path(mount["source"]).resolve() != expected / "backup"
-                or not mount.get("read_only") or mount.get("bind", {}).get("create_host_path") is not False
+                # Compose v2 omits false values from its rendered JSON.
+                or not mount.get("read_only") or mount.get("bind", {}).get("create_host_path", False) is not False
                 or mount.get("bind", {}).get("selinux") != "z"
             ):
                 raise ValueError("Backup credentials require an isolated read-only directory")
