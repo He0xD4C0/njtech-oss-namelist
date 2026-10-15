@@ -27,6 +27,16 @@ docker compose -p namelist-dev -f compose.yaml -f deploy/compose.local.yaml up -
 docker compose -p namelist-dev -f compose.yaml -f deploy/compose.local.yaml run --rm web python manage.py help
 ```
 
+## 初始化与界面
+
+`/setup/` 按引导授权、邮件与初始管理员、安全与政策、平台与头像存储、运维、检查激活六步配置。步骤通过 `?step=` 切换，每个表单只保存自己的字段组；返回、刷新和重新授权后可继续已保存的进度。加密密钥不回显，留空保留原值。SMTP 字段改变后必须重新验证发送，初始账号只有通过邮箱确认并完成激活后才获得超级管理员权限。跨设备邮箱确认不会授予初始化配置权限。
+
+`SiteState.activated_at` 是唯一开放标志；记录不存在也保持关闭。未激活时普通页面、账号入口、后台、业务接口及未知地址均返回 `302` 和禁止缓存头，跳转初始化；被拦截的 POST 不执行业务操作。只放行 `/setup/`、静态文件、语言切换和初始账号的有效邮箱确认链接。缺少 `BOOTSTRAP_SECRET` 时初始化返回 `503` 配置提示，其他入口继续受限；激活后初始化入口返回 `404`。容器原有 TCP、数据库和缓存健康检查不受影响。
+
+运行时配置沿用 `/manage/settings/` 和超管权限，使用与初始化一致的分组。同步提交、提交失败和实际完成分别记录，刷新只读取状态。外部备份配置状态由维护容器上报，通过现有缓存保留三分钟；过期或未收到状态时明确显示未知，不根据 Web 容器猜测。该状态只代表服务器配置完整性，不证明远程存储可达或备份已完成。
+
+公开页、账号工作区和初始化使用本地 Tabler；后台使用 Unfold。浅色、深色及跟随系统共用 Unfold 的 `adminTheme` 本地存储，默认跟随系统。表单使用 `django-widget-tweaks==1.5.1` 的共享字段模板；后台使用 Unfold 字段样式，静态资源仍由 npm 锁文件构建。
+
 ## 验证
 
 ```sh
@@ -40,9 +50,16 @@ docker compose -f compose.yaml -f deploy/compose.local.yaml config --quiet
 
 真实扫描验证参见 [licensecheck/README.md](licensecheck/README.md)。浏览器测试先安装 Chromium：`uv run --frozen playwright install chromium`。CI 分别要求普通测试、真实 ScanCode 测试与浏览器测试；本地结果不等于远端 CI、真实平台 OAuth 或部署验收。
 
+## 独立政策仓库
+
+- 许可证策略源：`https://github.com/He0xD4C0/njtech-oss-license-policy.git`，仅读取根目录 `whitelist/`、`blacklist/` 下一级普通文件中的完整许可证正文。
+- 政策正文源：`https://github.com/He0xD4C0/njtech-oss-eula.git`，读取 `zh-CN/`、`en-US/` 下的 `privacy.md`、`terms.md`、`inclusion.md`；每种语言必须三份齐全。
+
+在初始化或 `/manage/settings/` 中填写上述两个源地址并同步。政策正文可在普通文本中使用 `{{ operator_name }}` 和 `{{ operator_contact_email }}`，分别显示后台的“运营主体名称”和“公开联系邮箱”。字段可留空，中英页面分别显示“本站运营者 / Site operator”和“联系邮箱未设置 / Contact email not set”；不会从管理员账号或 SMTP 配置推断公开联系方式。替换不作用于代码块或链接目标，也不执行模板表达式。站点设置变更记录在配置审计中；政策页面的 Git SHA 和注册同意版本仅标识仓库正文，不包含这些运行时设置。
+
 ## Dev CI 与手动运行示例
 
-只有推送 `dev-*` 标签才触发 `Dev CI`：完整检查通过后构建 `web`、`scanner`、`maintenance`、`postgres` 四个镜像，发布到 GHCR，镜像标签为 `ci-<run-id>-<attempt>`。共享 Checks 只供该工作流调用；普通分支推送、PR、`release-*` 标签都不触发 CI。
+只有推送 `dev-*` 标签才触发 `Dev CI`：首先拉取远端 `main` 并验证标签提交属于其历史，不属于 `main` 或拉取失败时停止；完整检查通过后构建 `web`、`scanner`、`maintenance`、`postgres` 四个镜像，发布到 GHCR，镜像标签为 `ci-<run-id>-<attempt>`。远端只维护 `main` 分支。共享 Checks 只供该工作流调用；普通分支推送、PR、`release-*` 标签都不触发 CI。
 
 成功运行提供保留 90 天的 `ci-bundle` artifact，内含 `ci-bundle.tar.gz`。解压后包含 `manifest.json`（dev 标签、源码 SHA、CI run/attempt、四个镜像摘要）、`images.env` 和手动运行配置。旧五镜像清单不可混用。相同提交可以另打 release 标签，但外部 CD 的监听、验收、审批和部署不由本仓库实现。重跑时选择 **Re-run all jobs**，避免混合不同 attempt 的镜像记录。
 

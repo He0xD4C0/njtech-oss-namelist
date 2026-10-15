@@ -1,3 +1,3 @@
-{% extends "base.html" %}{% block content %}<h1>永久注销 / Delete account</h1>
-<p>这将撤下个人主页、所有仓库及历史榜单条目，并删除 OAuth 凭据和头像。 / This removes your profile, repository entries, historical ranking entries, OAuth credentials and avatar.</p>
-<form method="post">{% csrf_token %}{{ form.as_p }}<button class="btn btn-danger" type="submit">永久注销 / Permanently delete</button></form>{% endblock %}
+{% extends 'account/base_manage.html' %}{% load ui %}{% block account_content %}
+<h1 class="page-title mb-3">{% ui '永久注销' 'Delete account' %}</h1><section class="card"><div class="card-body"><p class="alert alert-danger">{% ui '这将撤下个人主页、所有仓库及历史榜单条目，并删除 OAuth 凭据和头像。' 'This removes your profile, repository entries, historical rankings, OAuth credentials and avatar.' %}</p><form method="post">{% csrf_token %}{% include 'ui/form.html' %}<button class="btn btn-danger" type="submit">{% ui '永久注销' 'Permanently delete' %}</button></form></div></section>
+{% endblock %}

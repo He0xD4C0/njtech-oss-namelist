@@ -1,0 +1,14 @@
+{% load widget_tweaks %}
+<div class="mb-3">
+  {% with WIDGET_ERROR_CLASS='is-invalid' %}
+    {% if field|widget_type == 'checkboxinput' %}
+      <label class="form-check" for="{{ field.id_for_label }}">{% render_field field class+='form-check-input' %}<span class="form-check-label">{{ field.label }}</span></label>
+    {% else %}
+      <label class="form-label{% if field.field.required %} required{% endif %}" for="{{ field.id_for_label }}">{{ field.label }}</label>
+      {% if field|widget_type == 'select' or field|widget_type == 'selectmultiple' %}{% render_field field class+='form-select' %}
+      {% else %}{% render_field field class+='form-control' %}{% endif %}
+    {% endif %}
+  {% endwith %}
+  {% if field.help_text %}<div class="form-hint" id="{{ field.auto_id }}_helptext">{{ field.help_text|safe }}</div>{% endif %}
+  {% if field.errors %}<div class="invalid-feedback d-block" id="{{ field.auto_id }}_error" role="alert">{{ field.errors }}</div>{% endif %}
+</div>

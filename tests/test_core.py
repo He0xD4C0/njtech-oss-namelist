@@ -42,7 +42,7 @@ def ready_site():
         PolicyDocument.objects.create(kind=kind, language="zh-CN", body=f"# {kind}", source_sha="a" * 40)
 
 
-def test_encrypted_configuration_and_no_secret_echo(client):
+def test_encrypted_configuration_and_no_secret_echo(client, initialized_site):
     admin = verified_user(is_staff=True, is_superuser=True)
     set_setting("oauth_github_client_secret", "secret-that-must-stay-private", user=admin)
     row = RuntimeSetting.objects.get(key="oauth_github_client_secret")
@@ -97,6 +97,52 @@ def test_username_and_safe_markdown():
         )
     )
     assert "<script>" not in html and "<img" not in html and 'href="javascript:' not in html
+
+
+@pytest.mark.parametrize("language,operator,contact", [
+    ("zh-CN", "本站运营者", "联系邮箱未设置"),
+    ("en-US", "Site operator", "Contact email not set"),
+])
+def test_policy_operator_defaults_and_safe_configured_values(client, language, operator, contact):
+    SiteState.objects.create(activated_at=timezone.now())
+    document = PolicyDocument.objects.create(
+        kind="terms", language=language,
+        body="Operator: {{ operator_name }}\n\nContact: {{ operator_contact_email }}",
+        source_sha="a" * 40,
+    )
+    url = f"/policies/terms/?language={language}"
+    response = client.get(url)
+    assert operator in response.content.decode() and contact in response.content.decode()
+    name = '<img src=x onerror=alert(1)> [operator](https://example.org) {{ operator_contact_email }}'
+    set_setting("operator_name", name)
+    set_setting("operator_contact_email", "contact@example.org")
+    response = client.get(url)
+    body = str(response.context["body_html"])
+    assert "&lt;img" in body and "<img" not in body
+    assert '[operator](https://example.org)' in body and 'href="https://example.org"' not in body
+    assert "{{ operator_contact_email }}" in body  # No recursive evaluation of setting values.
+    assert "Contact: contact@example.org" in body
+    document.refresh_from_db()
+    assert "{{ operator_name }}" in document.body and document.source_sha == "a" * 40
+
+
+def test_policy_variables_never_modify_links_or_code():
+    html = str(render_markdown(
+        "{{ operator_name }}\n\n`{{ operator_name }}`\n\n[link]({{operator_name}})",
+        text_replacements={"{{ operator_name }}": "[plain](https://example.org)"},
+    ))
+    assert "<p>[plain](https://example.org)</p>" in html
+    assert "<code>{{ operator_name }}</code>" in html
+    assert 'href="%7B%7Boperator_name%7D%7D"' in html
+
+
+def test_operator_configuration_optional_and_email_validated():
+    data = {"restore_schedule": "off"}
+    assert ConfigurationForm(data).is_valid()
+    form = ConfigurationForm({**data, "operator_name": "Community", "operator_contact_email": "not-an-email"})
+    assert not form.is_valid() and "operator_contact_email" in form.errors
+    form = ConfigurationForm({**data, "operator_name": "Community", "operator_contact_email": "help@example.org"})
+    assert form.is_valid(), form.errors
 
 
 def test_provider_url_rejects_arbitrary_hosts_and_credentials():
@@ -163,7 +209,7 @@ def test_bootstrap_initial_admin_requires_real_site_confirmation_flow(client, se
     assert client.get("/setup/").status_code == 404
 
 
-def test_webhook_verifies_signature_repository_and_branch(client):
+def test_webhook_verifies_signature_repository_and_branch(client, initialized_site):
     set_setting("license_source_url", "https://github.com/acme/rules.git")
     set_setting("license_webhook_secret", "hook-secret")
     body = json.dumps(
@@ -191,7 +237,7 @@ def test_webhook_verifies_signature_repository_and_branch(client):
         enqueue.assert_called_once()
 
 
-def test_gitlab_standard_push_reads_project_default_branch(client):
+def test_gitlab_standard_push_reads_project_default_branch(client, initialized_site):
     set_setting("policy_source_url", "https://gitlab.com/acme/documents.git")
     set_setting("policy_webhook_secret", "test-token")
     body = {
@@ -211,7 +257,7 @@ def test_gitlab_standard_push_reads_project_default_branch(client):
         enqueue.assert_called_once()
 
 
-def test_admin_cannot_edit_runtime_and_must_have_verified_email(client):
+def test_admin_cannot_edit_runtime_and_must_have_verified_email(client, initialized_site):
     admin = verified_user(is_staff=True)
     client.force_login(admin)
     assert client.get("/manage/settings/").status_code == 302

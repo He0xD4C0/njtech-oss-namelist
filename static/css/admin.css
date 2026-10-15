@@ -1,0 +1,12 @@
+/* EasyMDE is shared with the server-rendered Markdown preview. */
+.EasyMDEContainer { --editor-bg: #fff; --editor-muted: #f6f8fb; --editor-border: #dce1e7; --editor-text: #182433; }
+.dark .EasyMDEContainer { --editor-bg: #182433; --editor-muted: #202f42; --editor-border: #354558; --editor-text: #e5e7eb; }
+.EasyMDEContainer .CodeMirror, .EasyMDEContainer .editor-toolbar, .EasyMDEContainer .editor-preview, .EasyMDEContainer .editor-preview-side, .EasyMDEContainer .editor-statusbar { background: var(--editor-bg); color: var(--editor-text); border-color: var(--editor-border); }
+.EasyMDEContainer .CodeMirror-cursor { border-left-color: var(--editor-text); }
+.EasyMDEContainer .CodeMirror-selected { background: var(--editor-border); }
+.EasyMDEContainer .editor-toolbar button { color: var(--editor-text); }
+.EasyMDEContainer .editor-toolbar button:hover, .EasyMDEContainer .editor-toolbar button.active { background: var(--editor-muted); border-color: var(--editor-border); }
+.EasyMDEContainer .editor-toolbar.disabled-for-preview button:not(.no-disable) { background: var(--editor-muted); }
+.EasyMDEContainer .editor-preview pre, .EasyMDEContainer .editor-preview-side pre { background: var(--editor-muted); }
+.EasyMDEContainer .editor-preview img, .EasyMDEContainer .editor-preview-side img { max-width: 100%; }
+.EasyMDEContainer .editor-preview, .EasyMDEContainer .editor-preview-side { overflow-wrap: anywhere; }

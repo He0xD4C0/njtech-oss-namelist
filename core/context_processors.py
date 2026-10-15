@@ -6,6 +6,7 @@ def site_context(request):
     from django.conf import settings
 
     return {
+        "site_initializing": getattr(request, "site_initializing", False),
         "site_title": "南京工业大学开源软件仓库名录",
         "turnstile_site_key": get_setting("turnstile_site_key"),
         "source_url": settings.SOURCE_REPOSITORY_URL or "/source/",

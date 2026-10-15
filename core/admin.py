@@ -17,6 +17,25 @@ from .models import (
 )
 
 
+def navigation(request):
+    """Use the registered model permissions for every business navigation link."""
+    from django.urls import reverse
+
+    groups = [{"title": "站点 / Site", "items": [
+        {"title": "公开目录 / Directory", "icon": "home", "link": "/"},
+        {"title": "个人中心 / Account", "icon": "person", "link": reverse("core:profile")},
+    ]}]
+    if request.user.is_superuser:
+        groups[0]["items"].append({"title": "运行时配置 / Configuration", "icon": "settings", "link": reverse("core:configuration")})
+    icons = {"core": "settings", "bulletins": "campaign", "repositories": "folder", "providers": "link", "directory": "leaderboard"}
+    for app in admin.site.get_app_list(request):
+        groups.append({"title": app["name"], "collapsible": True, "items": [
+            {"title": model["name"], "icon": icons.get(app["app_label"], "table"), "link": model["admin_url"]}
+            for model in app["models"] if model.get("admin_url") and model["object_name"] != "RuntimeSetting"
+        ]})
+    return groups
+
+
 @admin.register(User)
 class UserAdmin(BaseUserAdmin, ModelAdmin):
     fieldsets = (
@@ -96,3 +115,10 @@ for model in (PolicyDocument, PolicyConsent, AuditEvent, SyncRun, SiteState, Pen
 for model in (EmailAddress, EmailConfirmation, SocialAccount, SocialToken, SocialApp, Group):
     if admin.site.is_registered(model):
         admin.site.unregister(model)
+
+# Keep the bundled sites/scheduler forms, actions and permissions, and supply
+# Unfold's field rendering just as UserAdmin does above.
+for model, model_admin in list(admin.site._registry.items()):
+    if model._meta.app_label in {"sites", "django_celery_beat"}:
+        admin.site.unregister(model)
+        admin.site.register(model, type(f"Themed{type(model_admin).__name__}", (type(model_admin), ModelAdmin), {}))

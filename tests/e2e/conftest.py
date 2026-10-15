@@ -78,7 +78,7 @@ def external_services_test_only(monkeypatch):
     from core.runtime import set_setting
 
     monkeypatch.setattr("core.forms.verify_turnstile", lambda request: None)
-    SiteState.objects.create(pk=1, activated_at=timezone.now())
+    SiteState.objects.update_or_create(pk=1, defaults={"activated_at": timezone.now()})
     for key, value in (
         ("smtp_host", "local.invalid"),
         ("smtp_verified", "1"),

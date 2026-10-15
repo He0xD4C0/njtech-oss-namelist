@@ -4,7 +4,46 @@ from allauth.account.models import EmailAddress
 from django.conf import settings
 from django.http import HttpResponseBadRequest
 from django.shortcuts import redirect
+from django.urls import Resolver404, resolve, reverse
 from django.utils import translation
+from django.utils.cache import add_never_cache_headers
+
+from .models import SiteState
+
+
+class SiteInitializationMiddleware:
+    """Keep an unactivated installation closed before any business view runs."""
+
+    def __init__(self, get_response):
+        self.get_response = get_response
+
+    def __call__(self, request):
+        if request.path_info.startswith(settings.STATIC_URL):
+            return self.get_response(request)
+        state = SiteState.objects.filter(pk=1).only("activated_at", "bootstrap_user_id").first()
+        request.site_initializing = not (state and state.activated_at)
+        if not request.site_initializing:
+            response = self.get_response(request)
+            if request.path_info == reverse("core:setup"):
+                add_never_cache_headers(response)
+            return response
+        try:
+            match = resolve(request.path_info)
+        except Resolver404:
+            match = None
+        allowed = match and match.view_name in {"core:setup", "set_language"}
+        if match and match.view_name == "account_confirm_email" and state and state.bootstrap_user_id:
+            from allauth.account.models import get_emailconfirmation_model
+
+            confirmation = get_emailconfirmation_model().from_key(match.kwargs["key"])
+            allowed = bool(confirmation and confirmation.email_address.user_id == state.bootstrap_user_id)
+            if not allowed:
+                response = redirect("/setup/?step=mail&confirmation=invalid")
+                add_never_cache_headers(response)
+                return response
+        response = self.get_response(request) if allowed else redirect("core:setup")
+        add_never_cache_headers(response)
+        return response
 
 
 class ProxyHeadersMiddleware:

@@ -2,13 +2,13 @@
 {% load ui %}
 {% block title %}{% ui '完成注册' 'Complete signup' %}{% endblock %}
 {% block content %}
-<section class="card mx-auto" style="max-width: 38rem"><div class="card-body">
+<section class="account-shell card"><div class="card-body">
 <h1 class="card-title">{% ui '完成 OAuth 注册' 'Complete OAuth signup' %}</h1>
 <p class="text-secondary">{% ui '平台授权不代替本站邮箱验证。请设置本站密码，并阅读与同意政策后完成注册。' 'Platform authorization does not replace site email verification. Set a site password and accept the policies to complete registration.' %}</p>
 <form method="post" action="{% url 'socialaccount_signup' %}">{% csrf_token %}
-{{ form.as_p }}{{ redirect_field }}
+{% include 'ui/form.html' %}{{ redirect_field }}
 <p><a href="/policies/privacy/">{% ui '隐私政策' 'Privacy' %}</a> · <a href="/policies/terms/">{% ui '使用条款' 'Terms' %}</a> · <a href="/policies/inclusion/">{% ui '收录规则' 'Inclusion rules' %}</a></p>
-{% if turnstile_site_key %}<div class="cf-turnstile" data-sitekey="{{ turnstile_site_key }}"></div><script src="https://challenges.cloudflare.com/turnstile/v0/api.js" async defer></script>{% endif %}
+{% if turnstile_site_key %}{% include 'account/turnstile.html' %}{% endif %}
 <button type="submit" class="btn btn-primary">{% ui '注册并验证邮箱' 'Sign up and verify email' %}</button>
 </form></div></section>
 {% endblock %}

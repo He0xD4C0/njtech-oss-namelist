@@ -200,6 +200,25 @@ def notify_failure(kind):
 
 
 @shared_task
+def report_backup_readiness():
+    """Run in maintenance, the only application container with backup credentials."""
+    from django.core.cache import cache
+
+    from deploy.backup.readiness import readiness
+
+    try:
+        state = readiness()
+    except (ValueError, OSError):
+        state = "invalid"
+    try:
+        cache.set("backup-readiness", {"state": state, "checked_at": timezone.now().isoformat()}, timeout=180)
+    except Exception:
+        # Status reporting must not stop the independent backup scheduler.
+        return "unavailable"
+    return state
+
+
+@shared_task
 def restore_drill():
     schedule = get_setting("restore_schedule", "monthly")
     if schedule == "off":

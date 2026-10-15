@@ -10,7 +10,7 @@ from directory.rankings import available_months, live_results, month_bounds, res
 from directory.tasks import close_months, snapshot_stars
 from repositories.models import Repository, StarSnapshot, Submission
 
-pytestmark = pytest.mark.django_db
+pytestmark = [pytest.mark.django_db, pytest.mark.usefixtures("initialized_site")]
 TZ = ZoneInfo("Asia/Shanghai")
 
 

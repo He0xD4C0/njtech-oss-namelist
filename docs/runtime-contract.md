@@ -2,7 +2,7 @@
 
 此文件只描述交付边界，不把配置存在视为外部服务验证成功。
 
-CI 仅由 `dev-*` 标签触发，负责测试与构建交付；不连接服务器、不处理预发布/生产放行。`release-*`、普通分支推送和 PR 不触发 CI。手动运行统一使用 `compose.yaml`，完整产物接口见 [CI 交付与上线检查](release-acceptance.md)。
+CI 仅由 `dev-*` 标签触发，先拉取远端 `main` 并验证标签提交属于其历史，再执行测试与构建交付；拉取或归属校验失败时停止。远端只维护 `main` 分支。CI 不连接服务器、不处理预发布/生产放行。`release-*`、普通分支推送和 PR 不触发 CI。手动运行统一使用 `compose.yaml`，完整产物接口见 [CI 交付与上线检查](release-acceptance.md)。
 
 ## 镜像与进程
 
@@ -25,6 +25,8 @@ CI 仅由 `dev-*` 标签触发，负责测试与构建交付；不连接服务�
 
 `TRUST_PROXY_HEADERS` 默认 `0`：不信任转发协议及地址头。仅在受控外部入口覆盖 `X-Forwarded-Proto`、`X-Real-IP` 且限制应用直连时设为 `1`。启用后使用转发协议和单个有效 IP，缺失 IP 使用连接地址，非法 IP 或链返回 400；`X-Forwarded-For` 始终不作为身份来源。`APP_PORT` 只控制回环宿主端口，Web 容器固定 8000；手动预发布 18000、生产 28000，本地开发 18000。数据库与 Redis 不发布宿主端口。
 
+`STAGING_HTTP` 默认 `0`，DEBUG=0 时会话与 CSRF Cookie 均要求 HTTPS。隔离内网 HTTP 预发布可显式启用 `STAGING_HTTP=1`，仅允许 `SITE_ENVIRONMENT=staging`；其他环境启动时报错，Compose 校验也拒绝生产启用。该开关不关闭 CSRF、登录校验或初始化门槛，不改变监听地址，也不自动配置代理。
+
 Gunicorn 访问日志只记录连接 IP、方法、状态和耗时，不记录 URL、query 或 Referer；不得恢复 request/referer 格式，避免凭据泄漏。域名、证书、HTTPS、入口超时和上传限制由外部基础设施负责，仓库只交付应用 HTTP 服务。
 
 备份凭据仅挂载给 DB 和维护容器：`${SECRET_DIR}/backup` → `/run/backup-secrets`，内含 `backup_s3_key`、`backup_s3_secret`、`backup_cipher`，由对应 `_FILE` 环境变量读取。挂载只读、共享 SELinux 标签、不自动创建宿主目录，不与应用密钥目录整目录共挂载。它们不存应用数据库、不进入 Web/扫描容器、不与头像 S3 共用。私有 pgBackRest 配置仅在就绪时生成在 tmpfs，权限 0600，不打印秘密。
@@ -35,7 +37,7 @@ Gunicorn 访问日志只记录连接 IP、方法、状态和耗时，不记录 U
 
 - `celery`：普通 API / Git 同步、邮件等任务。
 - `scan`：`repositories.tasks.audit_submission`、`core.tasks.sync_license_policy`；一般 Worker 不安装扫描库。
-- `maintenance`：`core.tasks.restore_drill`，并发固定 1；脚本另有文件锁。
+- `maintenance`：`core.tasks.restore_drill` 和 `core.tasks.report_backup_readiness`，并发固定 1；恢复脚本另有文件锁。维护服务启动时上报备份配置状态，Beat 每分钟刷新；Web 仅读取三分钟有效的缓存报告，不接触备份 Secrets。报告过期（包括维护队列繁忙）时显示未知，状态上报失败不阻止独立备份计时器运行。
 - 每套环境恰好一个数据库调度 Beat。`setup_periodic_tasks` 管理每日来源同步、每小时 Git、每六小时平台 API、每五分钟 `repositories.tasks.recover_audits`、每日 Star 快照/封榜与每日恢复到期检查。
 - 审核投递使用数据库 `AuditDispatch` 发件箱：策略激活与相应申请 generation 的发件箱记录在同一事务提交；提交后投递失败不丢失任务。每五分钟恢复未投递或三小时未完成的工作；迟确认、generation 校验及唯一审核结果使重复投递不会复活撤下条目。此机制不等同于依赖 Redis 持久化即可保证投递。
 - 头像删除使用 `PendingAvatarDeletion`：用户删除事务捕获并持久化锁定后的最新对象键，上传与注销竞态产生的晚到对象也进入清理队列；只保存对象键，不保留被删除用户资料。普通队列执行删除，每小时 `core.tasks.recover_avatar_deletions` 重投尚未完成的条目，S3 或 broker 故障后仍能继续清理。

@@ -33,7 +33,7 @@ from providers.clients import canonical_url
 from providers.models import OAuthBinding
 from providers.services import BindingConflict, save_binding
 
-pytestmark = pytest.mark.django_db
+pytestmark = [pytest.mark.django_db, pytest.mark.usefixtures("initialized_site")]
 
 
 @pytest.fixture(autouse=True)
@@ -452,7 +452,7 @@ def test_unconfigured_platform_routes_are_disabled(client, platform):
 @override_settings(EMAIL_BACKEND="django.core.mail.backends.locmem.EmailBackend")
 def test_full_social_signup_password_local_email_consent_and_encrypted_pending_session(client, monkeypatch):
     configure("github")
-    SiteState.objects.create(pk=1, activated_at=timezone.now())
+    SiteState.objects.update_or_create(pk=1, defaults={"activated_at": timezone.now()})
     set_setting("smtp_host", "smtp.example.test")
     set_setting("smtp_verified", "1")
     set_setting("turnstile_site_key", "local-test-key")
@@ -645,7 +645,7 @@ def test_browser_platform_cards_and_disconnect(user, client, live_server, tmp_pa
         expect(page.get_by_role("heading", name="Gitee", exact=True)).to_be_visible()
         expect(page.get_by_role("heading", name="GitLab.com", exact=True)).to_be_visible()
         expect(page.get_by_role("link", name="选择仓库", exact=True)).to_be_visible()
-        assert page.evaluate("document.documentElement.scrollWidth <= window.innerWidth")
+        assert page.evaluate("document.documentElement.scrollWidth <= window.innerWidth"), page.locator("body *").evaluate_all("nodes => nodes.filter(n => n.getBoundingClientRect().right > innerWidth).map(n => [n.tagName, n.className, n.getBoundingClientRect().width]).slice(-15)")
         page.get_by_text("解绑此平台", exact=True).click()
         confirmation = page.get_by_role("checkbox", name="我确认立即撤下该平台全部公开收录内容", exact=True)
         expect(confirmation).to_be_visible()

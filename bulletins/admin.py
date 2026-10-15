@@ -19,17 +19,10 @@ class AnnouncementAdmin(ModelAdmin):
     list_filter = ("kind",)
     search_fields = ("title", "body")
     readonly_fields = ("creator_name", "contributors", "revision", "created_at", "updated_at")
-    fields = (
-        "title",
-        "body",
-        "kind",
-        "include_future_users",
-        "expires_at",
-        "creator_name",
-        "contributors",
-        "revision",
-        "created_at",
-        "updated_at",
+    fieldsets = (
+        ("正文 / Content", {"fields": ("title", "body")}),
+        ("展示规则 / Display rules", {"fields": ("kind", "include_future_users", "expires_at")}),
+        ("编辑信息 / Attribution", {"fields": ("creator_name", "contributors", "revision", "created_at", "updated_at")}),
     )
     actions = None
 

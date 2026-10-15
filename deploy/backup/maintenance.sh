@@ -1,6 +1,7 @@
 #!/bin/sh
 set -eu
 state=0
+python /app/manage.py shell -c 'from core.tasks import report_backup_readiness; report_backup_readiness()'
 python /app/deploy/backup/readiness.py || state=$?
 if [ "$state" = 0 ]; then
     python /app/deploy/backup/render-config.py

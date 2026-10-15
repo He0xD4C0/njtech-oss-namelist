@@ -1,0 +1,10 @@
+{% load ui %}
+<label class="visually-hidden" for="site-theme">{% ui '配色模式' 'Color mode' %}</label>
+<select id="site-theme" class="form-select form-select-sm w-auto" data-theme-select aria-label="{% ui '配色模式' 'Color mode' %}">
+  <option value="auto">{% ui '跟随系统' 'System' %}</option><option value="light">{% ui '浅色' 'Light' %}</option><option value="dark">{% ui '深色' 'Dark' %}</option>
+</select>
+<form action="{% url 'set_language' %}" method="post" class="d-flex gap-1">{% csrf_token %}<input type="hidden" name="next" value="{{ request.get_full_path }}">
+  <label class="visually-hidden" for="ui-language">{% ui '界面语言' 'Interface language' %}</label>
+  <select name="language" id="ui-language" class="form-select form-select-sm w-auto"><option value="zh-hans" {% if request.LANGUAGE_CODE != 'en' %}selected{% endif %}>中文</option><option value="en" {% if request.LANGUAGE_CODE == 'en' %}selected{% endif %}>EN</option></select>
+  <button class="btn btn-sm" type="submit" aria-label="{% ui '切换语言' 'Apply language' %}">{% ui '切换' 'Apply' %}</button>
+</form>

@@ -11,6 +11,14 @@ def validate(document, environment):
     services = document["services"]
     if services["web"]["environment"]["DJANGO_DEBUG"] != "0":
         raise ValueError("Debug is not allowed in a deployed environment")
+    for service in services.values():
+        values = service.get("environment", {})
+        if values.get("STAGING_HTTP", "0") not in {"0", "1"}:
+            raise ValueError("STAGING_HTTP must be 0 or 1")
+        if values.get("STAGING_HTTP") == "1" and (
+            environment != "staging" or values.get("SITE_ENVIRONMENT") != "staging"
+        ):
+            raise ValueError("STAGING_HTTP is only allowed in the staging environment")
     for name in ("db", "maintenance"):
         values = services[name]["environment"]
         if values["BACKUP_ENABLED"] not in {"0", "1"} or values["BACKUP_REPO_TYPE"] != "s3":

@@ -1,10 +1,10 @@
-{% extends 'base.html' %}
+{% extends 'account/base_manage.html' %}
 {% load ui %}
 {% block title %}{% ui '仓库平台绑定' 'Repository platform connections' %}{% endblock %}
-{% block content %}
-<div class="page-header"><div><h1>{% ui '仓库平台绑定' 'Repository platform connections' %}</h1><p class="text-secondary">{% ui '每个平台可绑定一个账号。只能添加该账号直接拥有的公开 Git 仓库，解绑将立即撤下该平台的全部公开收录内容。' 'Connect one account per platform. Only directly owned public Git repositories are eligible. Disconnecting immediately withdraws every public entry from that platform.' %}</p></div></div>
+{% block account_content %}
+<div class="page-header mb-3"><div><h1 class="page-title">{% ui '仓库平台绑定' 'Repository platform connections' %}</h1><p class="text-secondary">{% ui '每个平台可绑定一个账号。只能添加该账号直接拥有的公开 Git 仓库，解绑将立即撤下该平台的全部公开收录内容。' 'Connect one account per platform. Only directly owned public Git repositories are eligible. Disconnecting immediately withdraws every public entry from that platform.' %}</p></div></div>
 <div class="row row-cards">
-{% for platform in platforms %}<div class="col-md-4"><section class="card h-100"><div class="card-body">
+{% for platform in platforms %}<div class="col-12 col-xl-4"><section class="card h-100"><div class="card-body">
   <h2 class="card-title">{{ platform.name }}</h2>
   {% if platform.binding %}
     <p>{% ui '已绑定' 'Connected' %}: <strong>{{ platform.binding.username }}</strong></p>

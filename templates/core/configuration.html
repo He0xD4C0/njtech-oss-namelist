@@ -1,9 +1,23 @@
-{% extends "base.html" %}{% block content %}<h1>运行时配置 / Runtime configuration</h1>
-{% if new_secret %}<div role="alert" class="alert alert-warning">新 Webhook 密钥，仅显示一次，请立即安全保存。 / New webhook secret, shown only once.<code>{{ new_secret }}</code></div>{% endif %}
-<form method="post" class="card card-body">{% csrf_token %}<input type="hidden" name="action" value="save">{{ form.as_p }}<button class="btn btn-primary">保存 / Save</button></form>
-<form method="post" class="my-3">{% csrf_token %}
-<button name="action" value="test-smtp" class="btn">测试 SMTP / Test SMTP</button><button name="action" value="test-s3" class="btn">测试头像 S3 / Test avatar S3</button>
-<button name="action" value="sync-documents" class="btn">同步政策正文 / Sync policy documents</button><button name="action" value="sync-licenses" class="btn">同步许可证策略 / Sync license policy</button>
-<button name="action" value="license-webhook" class="btn">生成/轮换许可证 Webhook 密钥 / Rotate license webhook secret</button><button name="action" value="policy-webhook" class="btn">生成/轮换政策 Webhook 密钥 / Rotate policy webhook secret</button></form>
-<p>Webhook: <code>/webhooks/licenses/</code> · <code>/webhooks/documents/</code></p>
-<h2>任务状态 / Task status</h2>{% for run in sync_runs %}<p>{{ run.created_at }} {{ run.kind }} {{ run.status }} {{ run.message }}</p>{% empty %}<p>暂无任务记录 / No task records</p>{% endfor %}{% endblock %}
+{% extends 'admin/base_site.html' %}{% load unfold ui %}
+{% block content %}
+<div class="flex flex-col gap-6">
+  {% if new_secret %}{% component 'unfold/components/card.html' with title='Webhook 密钥 / Webhook secret' %}<p role="alert">{% ui '新密钥仅显示一次，请立即安全保存。' 'The new secret is shown only once. Store it securely now.' %}</p><code class="break-all">{{ new_secret }}</code>{% endcomponent %}{% endif %}
+  <nav class="flex flex-wrap gap-2" aria-label="{% ui '配置分组' 'Configuration groups' %}">{% for item in groups %}<a class="border border-base-200 dark:border-base-700 rounded-default px-3 py-2" href="#{{ item.key }}">{{ item.title }}</a>{% endfor %}</nav>
+  {% for item in groups %}<section id="{{ item.key }}">
+    {% component 'unfold/components/card.html' with title=item.title %}
+      <form method="post">{% csrf_token %}<input type="hidden" name="action" value="save"><input type="hidden" name="group" value="{{ item.key }}">{% include 'ui/admin_form.html' with form=item.form %}{% component 'unfold/components/button.html' with submit=1 %}{% ui '保存 / Save' 'Save' %}{% endcomponent %}</form>
+      {% if item.key == 'smtp' %}<form method="post" class="mt-4">{% csrf_token %}{% component 'unfold/components/button.html' with submit=1 name='action' value='test-smtp' variant='default' %}{% ui '测试 SMTP' 'Test SMTP' %}{% endcomponent %}</form>{% endif %}
+      {% if item.key == 'storage' %}<form method="post" class="mt-4">{% csrf_token %}{% component 'unfold/components/button.html' with submit=1 name='action' value='test-s3' variant='default' %}{% ui '测试头像 S3' 'Test avatar S3' %}{% endcomponent %}</form>{% endif %}
+      {% if item.key == 'documents' or item.key == 'licenses' %}<form method="post" class="mt-4 flex flex-wrap gap-2">{% csrf_token %}
+        {% if item.key == 'documents' %}{% component 'unfold/components/button.html' with submit=1 name='action' value='sync-documents' variant='default' %}{% ui '同步政策正文' 'Sync policies' %}{% endcomponent %}{% component 'unfold/components/button.html' with submit=1 name='action' value='policy-webhook' variant='default' %}{% ui '生成 / 轮换 Webhook 密钥' 'Rotate webhook secret' %}{% endcomponent %}
+        {% else %}{% component 'unfold/components/button.html' with submit=1 name='action' value='sync-licenses' variant='default' %}{% ui '同步许可证策略' 'Sync license policy' %}{% endcomponent %}{% component 'unfold/components/button.html' with submit=1 name='action' value='license-webhook' variant='default' %}{% ui '生成 / 轮换 Webhook 密钥' 'Rotate webhook secret' %}{% endcomponent %}{% endif %}
+      </form><p class="text-subtle mt-4">Webhook: <code>/webhooks/{{ item.key }}/</code></p>{% endif %}
+      {% if item.key == 'operations' %}<p role="status" class="mt-4">{{ backup_status }}</p>{% endif %}
+    {% endcomponent %}
+  </section>{% endfor %}
+  {% component 'unfold/components/card.html' with title='任务状态 / Task status' %}
+    <a class="text-primary-600" href="{% url 'core:configuration' %}">{% ui '刷新状态' 'Refresh status' %}</a>
+    <ul class="mt-4">{% for run in sync_runs %}<li class="py-3 border-b border-base-200 dark:border-base-700"><strong>{{ run.kind }} · {{ run.status }}</strong> · {{ run.created_at }}{% if run.message %}<p>{{ run.message }}</p>{% endif %}</li>{% empty %}<li>{% ui '暂无完成记录；提交任务后请刷新查看结果。' 'No completed runs; refresh after queuing to check results.' %}</li>{% endfor %}</ul>
+  {% endcomponent %}
+</div>
+{% endblock %}

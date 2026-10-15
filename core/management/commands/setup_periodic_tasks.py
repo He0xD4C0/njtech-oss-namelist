@@ -36,6 +36,7 @@ class Command(BaseCommand):
             ("daily-star-observations", "directory.tasks.snapshot_stars", "35", "23"),
             ("freeze-ended-months", "directory.tasks.close_months", "10", "0"),
             ("isolated-restore-check", "core.tasks.restore_drill", "0", "5"),
+            ("maintenance-backup-readiness", "core.tasks.report_backup_readiness", "*", "*"),
         ]:
             schedule, _ = CrontabSchedule.objects.get_or_create(
                 minute=minute,

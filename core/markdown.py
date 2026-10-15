@@ -1,3 +1,5 @@
+import re
+
 import nh3
 from django.utils.safestring import mark_safe
 from markdown_it import MarkdownIt
@@ -5,10 +7,20 @@ from markdown_it import MarkdownIt
 parser = MarkdownIt("commonmark", {"html": False, "linkify": False})
 
 
-def render_markdown(body):
+def render_markdown(body, *, text_replacements=None):
+    environment = {}
+    tokens = parser.parse(body, environment)
+    if text_replacements:
+        pattern = re.compile("|".join(re.escape(key) for key in text_replacements))
+        for token in tokens:
+            for child in token.children or []:
+                if child.type == "text":
+                    # Substitute plain text tokens only; values cannot become Markdown,
+                    # HTML, link targets or executable template expressions.
+                    child.content = pattern.sub(lambda match: text_replacements[match[0]], child.content)
     return mark_safe(
         nh3.clean(
-            parser.render(body),
+            parser.renderer.render(tokens, parser.options, environment),
             tags={
                 "p",
                 "br",

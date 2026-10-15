@@ -144,6 +144,8 @@ class DeleteAccountForm(forms.Form):
 
 
 CONFIG_FIELDS = {
+    "operator_name": "运营主体名称 / Operator name",
+    "operator_contact_email": "公开联系邮箱 / Public contact email",
     "smtp_host": "SMTP host",
     "smtp_port": "SMTP port",
     "smtp_username": "SMTP username",
@@ -168,6 +170,21 @@ CONFIG_FIELDS = {
     },
 }
 
+# Shared by the setup wizard and runtime settings. Only the selected group's
+# fields enter cleaned_data, so saving a step cannot erase another step.
+CONFIG_GROUPS = {
+    "smtp": ("邮件服务 / Mail delivery", tuple(key for key in CONFIG_FIELDS if key.startswith("smtp_"))),
+    "turnstile": ("安全验证 / Turnstile", ("turnstile_site_key", "turnstile_secret_key")),
+    "documents": ("必需政策 / Required policies", ("policy_source_url", "operator_name", "operator_contact_email")),
+    "licenses": ("许可证策略（可稍后配置）/ License policy (optional)", ("license_source_url",)),
+    **{
+        platform: (f"{platform.title()} OAuth", (f"oauth_{platform}_client_id", f"oauth_{platform}_client_secret"))
+        for platform in ("github", "gitee", "gitlab")
+    },
+    "storage": ("头像存储 / Avatar storage", tuple(key for key in CONFIG_FIELDS if key.startswith("s3_"))),
+    "operations": ("运维选项 / Operations", ("operations_emails", "restore_schedule")),
+}
+
 
 class ConfigurationForm(forms.Form):
     restore_schedule = forms.ChoiceField(
@@ -181,10 +198,15 @@ class ConfigurationForm(forms.Form):
         ]
     )
 
-    def __init__(self, *args, **kwargs):
+    def __init__(self, *args, group=None, admin_style=False, **kwargs):
         super().__init__(*args, **kwargs)
+        selected = CONFIG_GROUPS[group][1] if group else (*CONFIG_FIELDS, "restore_schedule")
+        self.fields = {key: field for key, field in self.fields.items() if key in selected}
         for key, label in CONFIG_FIELDS.items():
-            self.fields[key] = forms.CharField(
+            if key not in selected:
+                continue
+            field_class = forms.EmailField if key == "operator_contact_email" else forms.CharField
+            self.fields[key] = field_class(
                 required=False,
                 label=label,
                 widget=forms.PasswordInput(render_value=False) if key in SECRET_KEYS else forms.TextInput,
@@ -193,12 +215,24 @@ class ConfigurationForm(forms.Form):
                 self.fields[key].initial = get_setting(key)
             elif get_setting(key):
                 self.fields[key].help_text = "已配置，留空保持不变 / Configured; leave blank to retain"
-        self.fields["restore_schedule"].initial = get_setting("restore_schedule", "monthly")
-        self.fields["smtp_security"].initial = get_setting("smtp_security") or "starttls"
-        self.fields["smtp_port"].initial = get_setting("smtp_port") or "587"
-        self.fields[
-            "smtp_security"
-        ].help_text = "starttls 或 tls；本地 DEBUG 验证可使用 none。 / starttls or tls; none is allowed only in local DEBUG tests."
+        for key, help_text in {
+            "operator_name": "选填；用于政策正文，留空显示“本站运营者”。 / Optional; defaults to “Site operator” in policies.",
+            "operator_contact_email": "选填；此邮箱将公开显示，留空显示“联系邮箱未设置”。 / Optional and public; defaults to “Contact email not set”.",
+            "smtp_security": "starttls 或 tls；本地 DEBUG 验证可使用 none。 / starttls or tls; none is allowed only in local DEBUG tests.",
+        }.items():
+            if key in self.fields:
+                self.fields[key].help_text = help_text
+        for key, default in {"restore_schedule": "monthly", "smtp_security": "starttls", "smtp_port": "587"}.items():
+            if key in self.fields:
+                self.fields[key].initial = get_setting(key) or default
+        if group is not None:
+            self.fields = {key: self.fields[key] for key in CONFIG_GROUPS[group][1]}
+        if admin_style:
+            from unfold.widgets import INPUT_CLASSES, SELECT_CLASSES
+
+            for field in self.fields.values():
+                classes = SELECT_CLASSES if isinstance(field.widget, forms.Select) else INPUT_CLASSES
+                field.widget.attrs["class"] = " ".join(classes)
 
     def clean(self):
         from .git import validate_git_url
@@ -210,10 +244,11 @@ class ConfigurationForm(forms.Form):
                     data[key] = validate_git_url(data[key], github_only=key == "license_source_url")
                 except ValueError as exc:
                     self.add_error(key, str(exc))
-        data["smtp_security"] = data.get("smtp_security") or "starttls"
+        if "smtp_security" in self.fields:
+            data["smtp_security"] = data.get("smtp_security") or "starttls"
         from django.conf import settings
 
-        if data["smtp_security"] not in ("starttls", "tls"):
+        if "smtp_security" in self.fields and data["smtp_security"] not in ("starttls", "tls"):
             if not (
                 settings.DEBUG
                 and data["smtp_security"] == "none"
@@ -253,15 +288,23 @@ class ConfigurationForm(forms.Form):
 
 
 class BootstrapAccountForm(forms.Form):
-    username = forms.CharField(max_length=32)
-    email = forms.EmailField()
-    password = forms.CharField(widget=forms.PasswordInput)
+    username = forms.CharField(max_length=32, label="用户名 / Username")
+    email = forms.EmailField(label="管理员邮箱 / Administrator email")
+    password = forms.CharField(widget=forms.PasswordInput, label="密码 / Password")
 
     def clean_username(self):
         from .models import username_validator
 
         username_validator(self.cleaned_data["username"])
+        if User.objects.filter(username=self.cleaned_data["username"]).exists():
+            raise forms.ValidationError("用户名已存在 / Username already exists")
         return self.cleaned_data["username"]
+
+    def clean_email(self):
+        email = self.cleaned_data["email"].lower()
+        if User.objects.filter(email__iexact=email).exists():
+            raise forms.ValidationError("邮箱已存在 / Email already exists")
+        return email
 
     def clean_password(self):
         value = self.cleaned_data["password"]

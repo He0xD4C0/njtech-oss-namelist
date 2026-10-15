@@ -8,7 +8,20 @@ concurrency:
   group: dev-ci-${{ github.ref }}
   cancel-in-progress: false
 jobs:
+  source:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with: {fetch-depth: 0}
+      - name: Verify tagged commit belongs to main
+        run: |
+          git fetch --no-tags origin +refs/heads/main:refs/remotes/origin/main
+          if ! git merge-base --is-ancestor "$GITHUB_SHA" refs/remotes/origin/main; then
+            echo '::error::The dev tag must point to a commit on main.'
+            exit 1
+          fi
   checks:
+    needs: source
     uses: ./.github/workflows/checks.yml
   images:
     needs: checks

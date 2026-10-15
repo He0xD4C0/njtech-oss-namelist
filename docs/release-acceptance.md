@@ -2,7 +2,7 @@
 
 ## CI 边界与产物
 
-`Dev CI` 只监听推送的 `dev-*` 标签。共享 Checks 执行 PostgreSQL 应用测试、运维与浏览器测试、Linux amd64 真实 ScanCode、容器及备份恢复冒烟；全部成功后才构建发布四个 GHCR 镜像。普通分支推送、PR、`release-*` 都不触发工作流。仓库没有 CD、GitHub 部署 environment、服务器 Secrets 或额外审批入口。
+`Dev CI` 只监听推送的 `dev-*` 标签。首先以完整历史拉取远端 `main`，验证标签提交是 `main` 的当前提交或祖先；拉取失败或未合入 `main` 时停止，不执行后续检查和构建。远端只维护 `main` 分支，应先推送 main 提交，再推送对应 dev 标签。共享 Checks 执行 PostgreSQL 应用测试、运维与浏览器测试、Linux amd64 真实 ScanCode、容器及备份恢复冒烟；全部成功后才构建发布四个 GHCR 镜像。普通分支推送、PR、`release-*` 都不触发工作流。仓库没有 CD、GitHub 部署 environment、服务器 Secrets 或额外审批入口。
 
 镜像标签为 `ci-<run-id>-<attempt>`；只用不可变 `@sha256:` 摘要选择运行版本，不提供 `latest`。每个镜像记录与最终清单都绑定同一标签、源码提交、run ID 和 attempt，不能混用其他运行的记录。失败后重试选择 **Re-run all jobs**，保证当前 attempt 的四个记录齐全。
 
@@ -21,6 +21,8 @@ Actions artifact `ci-bundle` 保留 90 天，下载后解压其中的 `ci-bundle
 例子使用 `staging`、`APP_PORT=18000`；生产需同步改为 `namelist-production`、`SITE_ENVIRONMENT=production`、`APP_PORT=28000`、独立 Secrets 目录及 `/namelist/production` 备份前缀。Web 只绑定宿主 `127.0.0.1`，PostgreSQL 与 Redis 不发布端口。`images.env` 无需编辑，作为第二个环境文件覆盖模板中的镜像占位符。
 
 预发布允许备份 S3 尚未配置，但须按运维手册预先建立受保护的空 `SECRET_DIR/backup` 子目录。此时即使 `BACKUP_ENABLED=1` 或 GUI 保存了演练频率，也没有备份、恢复演练或 WAL 归档保护；不能将应用启动成功视为备份验收。生产配置不允许此例外。补齐备份后须重新创建 DB/维护服务并完成首次全量备份验证。
+
+仅限隔离内网的 HTTP 预发布可显式设置 `SITE_ENVIRONMENT=staging`、`STAGING_HTTP=1`，并使 `SITE_BASE_URL`、允许主机和 CSRF 来源与实际 HTTP 地址一致。此时会话与 CSRF Cookie 不要求 HTTPS，DEBUG 仍须为 0；生产环境拒绝此开关。应用端口仍绑定回环地址，IP 入口由外部代理提供并限制内网来源；可信请求头必须由该代理覆盖。SMTP、验证码及 OAuth 对来源地址的要求须另行实测，不能以页面可访问代替集成验收。
 
 **宿主同名环境变量优先于环境文件。** 使用无开发变量、无 `COMPOSE_*` 自定义项的专用终端；不要从已 export 开发配置的 shell 启动。不要公开打印带敏感配置的完整 Compose 输出。
 

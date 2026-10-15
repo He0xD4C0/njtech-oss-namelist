@@ -16,6 +16,8 @@ SECRET_KEYS = {
     "policy_webhook_secret",
 }
 SETTING_KEYS = {
+    "operator_name",
+    "operator_contact_email",
     "smtp_host",
     "smtp_port",
     "smtp_username",

@@ -5,6 +5,15 @@ from .runtime import get_setting, registration_ready
 
 
 class AccountAdapter(DefaultAccountAdapter):
+    def get_email_verification_redirect_url(self, email_address):
+        from .models import SiteState
+
+        if SiteState.objects.filter(
+            pk=1, activated_at__isnull=True, bootstrap_user_id=email_address.user_id
+        ).exists():
+            return "/setup/?step=mail&confirmed=1"
+        return super().get_email_verification_redirect_url(email_address)
+
     def is_open_for_signup(self, request):
         return registration_ready()
 

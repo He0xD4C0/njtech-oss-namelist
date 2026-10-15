@@ -7,7 +7,7 @@ from django.utils import timezone
 from core.models import RuntimeSetting, User
 from repositories.models import Repository, Submission
 
-pytestmark = pytest.mark.django_db
+pytestmark = [pytest.mark.django_db, pytest.mark.usefixtures("initialized_site")]
 
 
 @pytest.fixture

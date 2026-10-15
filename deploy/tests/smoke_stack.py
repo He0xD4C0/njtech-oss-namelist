@@ -10,19 +10,24 @@ import tempfile
 import time
 from pathlib import Path
 from urllib.error import HTTPError
-from urllib.request import ProxyHandler, Request, build_opener
+from urllib.request import HTTPRedirectHandler, ProxyHandler, Request, build_opener
 
 ROOT = Path(__file__).resolve().parents[2]
 PROJECT = "njtech-ops-smoke"
 urlopen = build_opener(ProxyHandler({})).open
 
 
+class NoRedirect(HTTPRedirectHandler):
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        return None
+
+
 def main(configured):
     environment = os.environ | {
-        "APP_IMAGE": "njtech-ops-web:local",
+        "APP_IMAGE": os.getenv("APP_IMAGE", "njtech-ops-web:local"),
         "SCANNER_IMAGE": "njtech-ops-scanner:local",
         "POSTGRES_BACKUP_IMAGE": "njtech-ops-postgres:local",
-        "MAINTENANCE_IMAGE": "njtech-ops-maintenance:local",
+        "MAINTENANCE_IMAGE": os.getenv("MAINTENANCE_IMAGE", "njtech-ops-maintenance:local"),
     }
     existing = subprocess.run(
         ["docker", "ps", "-aq", "--filter", f"label=com.docker.compose.project={PROJECT}"],
@@ -114,8 +119,19 @@ def main(configured):
                 "web",
                 "mailpit",
             )
-            with urlopen("http://localhost:18000/", timeout=20) as response:
-                assert response.status == 200 and b"<!" in response.read()
+            gated = build_opener(ProxyHandler({}), NoRedirect()).open
+            for path in ("/", "/admin/", "/accounts/login/", "/unknown", "/media/not-present.png"):
+                try:
+                    gated("http://localhost:18000" + path, timeout=20)
+                except HTTPError as response:
+                    assert response.code == 302 and response.headers["Location"] == "/setup/"
+                    assert "no-store" in response.headers["Cache-Control"]
+                    response.close()
+                else:
+                    raise AssertionError("Uninitialized business entrance must redirect")
+            with urlopen("http://localhost:18000/setup/", timeout=20) as response:
+                assert response.status == 200 and b"bootstrap-secret" in response.read()
+                assert "no-store" in response.headers["Cache-Control"]
             # Production Gunicorn + WhiteNoise, not Django's development static handler.
             for path, mime in (
                 ("vendor/tabler/tabler.min.css", "text/css"),
@@ -149,7 +165,7 @@ def main(configured):
                     error.close()
                 else:
                     raise AssertionError("Conditional static request must return 304")
-            for path in ("/static/not-present.css", "/static/../config/settings.py", "/media/not-present.png"):
+            for path in ("/static/not-present.css", "/static/../config/settings.py"):
                 try:
                     urlopen(f"http://localhost:18000{path}", timeout=20)
                 except HTTPError as error:
@@ -340,8 +356,9 @@ def browser_smoke(run):
     # An isolated fixture session; no authentication bypass is installed in the application.
     result = run(
         "exec", "-T", "web", "python", "manage.py", "shell", "-c",
-        "import json; from core.models import User; from allauth.account.models import EmailAddress; "
-        "from django.test import Client; "
+        "import json; from core.models import User, SiteState; from allauth.account.models import EmailAddress; "
+        "from django.test import Client; from django.utils import timezone; "
+        "SiteState.objects.update_or_create(pk=1, defaults={'activated_at':timezone.now()}); "
         "u=User.objects.create_superuser('smoke-admin', 'smoke@example.invalid', 'Local-smoke-password-429'); "
         "EmailAddress.objects.create(user=u,email=u.email,verified=True,primary=True); "
         "c=Client(); c.force_login(u); print(json.dumps({'session':c.cookies['sessionid'].value}))",

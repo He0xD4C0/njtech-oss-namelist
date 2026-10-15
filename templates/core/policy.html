@@ -1,4 +1,4 @@
-{% extends "base.html" %}{% block content %}<h1>{{ kind }} · {{ selected_language }}</h1>
-<nav aria-label="政策语言 / Policy language">{% for language in available_languages %}<a href="?language={{ language }}">{{ language }}</a> {% endfor %}</nav>
-{% if document %}<article class="card card-body markdown">{{ body_html }}</article><small>版本 / Version: {{ document.source_sha }}</small>
+{% extends "base.html" %}{% block content %}<h1 class="page-title mb-3">{{ kind }} · {{ selected_language }}</h1>
+<nav class="d-flex flex-wrap gap-3 mb-3" aria-label="政策语言 / Policy language">{% for language in available_languages %}<a href="?language={{ language }}">{{ language }}</a> {% endfor %}</nav>
+{% if document %}<article class="card card-body markdown-body">{{ body_html }}</article><small>版本 / Version: {{ document.source_sha }}</small>
 {% else %}<p role="status">此语言正文尚未提供，请选择上方可用语言。 / This language is unavailable; choose an available language above.</p>{% endif %}{% endblock %}

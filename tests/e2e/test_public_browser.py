@@ -13,7 +13,53 @@ from bulletins.models import Announcement, AnnouncementReceipt
 from core.models import PolicyConsent, User
 from repositories.models import Repository, Submission
 
-pytestmark = [pytest.mark.django_db(transaction=True), pytest.mark.e2e]
+pytestmark = [pytest.mark.django_db(transaction=True), pytest.mark.e2e, pytest.mark.usefixtures("initialized_site")]
+
+
+def test_operator_settings_render_in_both_policy_languages(page, live_server, session_login):
+    from core.models import PolicyDocument, SiteState
+
+    SiteState.objects.update_or_create(pk=1, defaults={"activated_at": timezone.now()})
+
+    user = User.objects.create_superuser("policy-admin", "policy@example.invalid", "Browser-test-password-421")
+    EmailAddress.objects.create(user=user, email=user.email, verified=True, primary=True)
+    for language in ("zh-CN", "en-US"):
+        PolicyDocument.objects.create(
+            language=language, kind="terms", source_sha="a" * 40,
+            body="# Terms\n\n{{ operator_name }}\n\n{{ operator_contact_email }}",
+        )
+    for language, operator, email in (
+        ("zh-CN", "本站运营者", "联系邮箱未设置"),
+        ("en-US", "Site operator", "Contact email not set"),
+    ):
+        page.goto(live_server.url + f"/policies/terms/?language={language}")
+        expect(page.locator("article").get_by_text(operator, exact=True)).to_be_visible()
+        expect(page.locator("article").get_by_text(email, exact=True)).to_be_visible()
+    session_login(user)
+    page.goto(live_server.url + "/manage/settings/")
+    name = page.get_by_label("运营主体名称 / Operator name", exact=True)
+    email = page.get_by_label("公开联系邮箱 / Public contact email", exact=True)
+    expect(name).to_be_visible()
+    expect(email).to_be_visible()
+    name.fill("开源社区 [test](https://example.org)")
+    email.fill("help@example.org")
+    page.locator("#documents").get_by_role("button", name="保存 / Save", exact=True).click()
+    expect(name).to_have_value("开源社区 [test](https://example.org)")
+    expect(email).to_have_value("help@example.org")
+    for language in ("zh-CN", "en-US"):
+        for width in (1440, 390):
+            page.set_viewport_size({"width": width, "height": 900})
+            page.goto(live_server.url + f"/policies/terms/?language={language}")
+            expect(page.locator("article").get_by_text("开源社区 [test](https://example.org)", exact=True)).to_be_visible()
+            expect(page.locator("article").get_by_text("help@example.org", exact=True)).to_be_visible()
+            expect(page.locator('article a[href="https://example.org"]')).to_have_count(0)
+    page.goto(live_server.url + "/manage/settings/")
+    name.fill("")
+    email.fill("")
+    page.locator("#documents").get_by_role("button", name="保存 / Save", exact=True).click()
+    page.goto(live_server.url + "/policies/terms/?language=zh-CN")
+    expect(page.locator("article").get_by_text("本站运营者", exact=True)).to_be_visible()
+    expect(page.locator("article").get_by_text("联系邮箱未设置", exact=True)).to_be_visible()
 
 
 def test_backup_frequency_save_does_not_enable_unconfigured_backup(page, live_server, session_login, monkeypatch):
@@ -29,7 +75,7 @@ def test_backup_frequency_save_does_not_enable_unconfigured_backup(page, live_se
     page.goto(live_server.url + "/manage/settings/")
     expect(page.get_by_text("仅在服务器独立备份 S3 配置就绪后生效", exact=False)).to_be_visible()
     page.get_by_label("恢复演练频率 / Restore drill frequency").select_option("quarterly")
-    page.get_by_role("button", name="保存 / Save", exact=True).click()
+    page.locator("#operations").get_by_role("button", name="保存 / Save", exact=True).click()
     expect(page.get_by_label("恢复演练频率 / Restore drill frequency")).to_have_value("quarterly")
     assert get_setting("restore_schedule") == "quarterly"
     with patch("core.tasks.subprocess.run") as run, patch("core.tasks.record_failure") as failure:
@@ -88,6 +134,23 @@ def test_public_desktop_mobile_filters_and_source(page, live_server, public_cont
         == 3
     )
     page.screenshot(path=str(artifact_dir / "home-desktop.png"), full_page=True)
+    page.get_by_label("配色模式").select_option("dark")
+    contrast = page.locator(".repository-card").first.evaluate("""card => {
+      const ctx = document.createElement('canvas').getContext('2d');
+      const luminance = color => {
+        ctx.fillStyle = color; ctx.fillRect(0, 0, 1, 1);
+        const rgb = [...ctx.getImageData(0, 0, 1, 1).data].slice(0, 3).map(x => {
+          x /= 255; return x <= .04045 ? x / 12.92 : ((x + .055) / 1.055) ** 2.4;
+        });
+        return rgb[0] * .2126 + rgb[1] * .7152 + rgb[2] * .0722;
+      };
+      const foreground = luminance(getComputedStyle(card.querySelector('.card-footer a')).color);
+      const background = luminance(getComputedStyle(card).backgroundColor);
+      return (Math.max(foreground, background) + .05) / (Math.min(foreground, background) + .05);
+    }""")
+    assert contrast >= 4.5
+    page.screenshot(path=str(artifact_dir / "home-desktop-dark.png"), full_page=True)
+    page.get_by_label("配色模式").select_option("auto")
     print(f"desktop screenshot: {artifact_dir / 'home-desktop.png'}")
     page.get_by_role("link", name="仓库", exact=True).click()
     expect(page.locator(".repository-card")).to_have_count(20)

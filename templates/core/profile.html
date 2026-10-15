@@ -1,11 +1,6 @@
-{% extends "base.html" %}{% load ui %}{% block content %}
-<h1>{% ui '个人资料' 'Profile' %}</h1>
-<p><a href="{% url 'directory:profile' user.username %}">{% ui '查看我的公开主页' 'View my public profile' %} <span aria-hidden="true">↗</span></a></p>
-<form method="post" enctype="multipart/form-data" class="card card-body account-form">{% csrf_token %}{{ form.as_p }}
-{% if not avatar_enabled %}<p role="status">头像存储未配置或暂不可用；当前使用默认头像。 / Avatar storage unavailable; default avatar shown.</p>{% endif %}
-<button class="btn btn-primary" type="submit">保存 / Save</button></form>
-<p><a href="{% url 'providers:index' %}">平台绑定 / Platform connections</a> · <a href="{% url 'repositories:index' %}">管理仓库 / Manage repositories</a> · <a href="{% url 'account_change_password' %}">修改密码 / Change password</a> · <a href="{% url 'account_email' %}">邮箱 / Email</a></p>
-<a href="{% url 'core:delete_account' %}">注销账号 / Delete account</a>
-{% if user.is_staff %}<p><a href="/admin/">{% ui '管理后台' 'Administration' %}</a>{% if user.is_superuser %} · <a href="{% url 'core:configuration' %}">{% ui '运行时配置' 'Runtime configuration' %}</a>{% endif %}</p>{% endif %}
-<form method="post" action="{% url 'account_logout' %}" class="mt-3">{% csrf_token %}<button class="btn btn-outline-secondary" type="submit">{% ui '退出登录' 'Sign out' %}</button></form>
+{% extends 'account/base_manage.html' %}{% load ui %}{% block account_content %}
+<div class="d-flex flex-wrap justify-content-between gap-2 align-items-center mb-3"><h1 class="page-title">{% ui '个人资料' 'Profile' %}</h1><a href="{% url 'directory:profile' user.username %}">{% ui '查看我的公开主页' 'View my public profile' %} <span aria-hidden="true">↗</span></a></div>
+<section class="card"><form method="post" enctype="multipart/form-data" class="card-body">{% csrf_token %}{% include 'ui/form.html' %}
+{% if not avatar_enabled %}<p class="alert alert-info" role="status">{% ui '头像存储未配置或暂不可用；当前使用默认头像。' 'Avatar storage is unavailable; the default avatar is shown.' %}</p>{% endif %}<button class="btn btn-primary" type="submit">{% ui '保存 / Save' 'Save' %}</button></form></section>
+{% if user.is_staff %}<div class="d-flex flex-wrap gap-3 mt-3"><a href="{% url 'admin:index' %}">{% ui '管理后台' 'Administration' %}</a>{% if user.is_superuser %}<a href="{% url 'core:configuration' %}">{% ui '运行时配置' 'Runtime configuration' %}</a>{% endif %}</div>{% endif %}
 {% endblock %}

@@ -12,6 +12,7 @@ ALLOWED_HOSTS = os.getenv("DJANGO_ALLOWED_HOSTS", "localhost,127.0.0.1,testserve
 CSRF_TRUSTED_ORIGINS = list(filter(None, os.getenv("CSRF_TRUSTED_ORIGINS", "").split(",")))
 INSTALLED_APPS = [
     "unfold",
+    "widget_tweaks",
     "django.contrib.admin",
     "django.contrib.auth",
     "django.contrib.contenttypes",
@@ -38,6 +39,7 @@ MIDDLEWARE = [
     "core.middleware.ProxyHeadersMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
     "django.middleware.locale.LocaleMiddleware",
+    "core.middleware.SiteInitializationMiddleware",
     "django.middleware.common.CommonMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",
     "django.contrib.auth.middleware.AuthenticationMiddleware",
@@ -137,9 +139,15 @@ STORAGES = {
     "staticfiles": {"BACKEND": "whitenoise.storage.CompressedStaticFilesStorage"},
 }
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
+SITE_ENVIRONMENT = os.getenv("SITE_ENVIRONMENT", "production")
+STAGING_HTTP = os.getenv("STAGING_HTTP", "0") == "1"
+if STAGING_HTTP and SITE_ENVIRONMENT != "staging":
+    from django.core.exceptions import ImproperlyConfigured
+
+    raise ImproperlyConfigured("STAGING_HTTP is only allowed in the staging environment")
 SESSION_COOKIE_HTTPONLY = True
-SESSION_COOKIE_SECURE = not DEBUG
-CSRF_COOKIE_SECURE = not DEBUG
+SESSION_COOKIE_SECURE = not (DEBUG or STAGING_HTTP)
+CSRF_COOKIE_SECURE = SESSION_COOKIE_SECURE
 SECURE_CONTENT_TYPE_NOSNIFF = True
 X_FRAME_OPTIONS = "DENY"
 SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https") if TRUST_PROXY_HEADERS else None
@@ -176,9 +184,20 @@ CELERY_TASK_ROUTES = {
     "repositories.tasks.audit_submission": {"queue": "scan"},
     "core.tasks.sync_license_policy": {"queue": "scan"},
     "core.tasks.restore_drill": {"queue": "maintenance"},
+    "core.tasks.report_backup_readiness": {"queue": "maintenance"},
 }
 CELERY_TASK_ALWAYS_EAGER = os.getenv("CELERY_TASK_ALWAYS_EAGER", "0") == "1"
 CELERY_TASK_EAGER_PROPAGATES = True
 CELERY_TASK_PUBLISH_RETRY = False
 CELERY_TIMEZONE = TIME_ZONE
-UNFOLD = {"SITE_TITLE": "南京工业大学开源软件仓库名录", "SITE_HEADER": "开源软件仓库名录"}
+UNFOLD = {
+    "SITE_TITLE": "南京工业大学开源软件仓库名录",
+    "SITE_HEADER": "开源软件仓库名录",
+    "SHOW_LANGUAGES": True,
+    "SIDEBAR": {"show_search": True, "navigation": "core.admin.navigation"},
+    "COLORS": {"primary": {
+        "50": "#eff6ff", "100": "#dbeafe", "200": "#bfdbfe", "300": "#93c5fd",
+        "400": "#60a5fa", "500": "#3b82f6", "600": "#2563eb", "700": "#1d4ed8",
+        "800": "#1e40af", "900": "#1e3a8a", "950": "#172554",
+    }},
+}

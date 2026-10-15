@@ -6,6 +6,7 @@ import subprocess
 import sys
 import tarfile
 import tempfile
+import textwrap
 import unittest
 from pathlib import Path
 from unittest.mock import patch
@@ -355,7 +356,9 @@ class CIArtifactsTests(unittest.TestCase):
         checks = (workflows / "checks.yml").read_text()
         self.assertEqual(re.search(r"(?ms)^on:\n(.*?)(?=^permissions:)", checks).group(1).strip(), "workflow_call:")
         jobs = re.findall(r"^  ([a-z][a-z0-9-]*):$", text.split("jobs:\n", 1)[1], re.MULTILINE)
-        self.assertEqual(jobs, ["checks", "images", "bundle"])
+        self.assertEqual(jobs, ["source", "checks", "images", "bundle"])
+        self.assertIn("    needs: source\n", text)
+        self.assertIn("with: {fetch-depth: 0}", text)
         self.assertIn("    needs: checks\n", text)
         self.assertIn("    needs: images\n", text)
         self.assertIn("matrix: {target: [web, scanner, maintenance, postgres]}", text)
@@ -366,6 +369,72 @@ class CIArtifactsTests(unittest.TestCase):
         self.assertIn("name: ci-bundle, path: ci-bundle.tar.gz, retention-days: 90", text)
         self.assertNotIn(":latest", text)
         self.assertFalse((ROOT / "deploy/release").exists())
+
+    def test_main_ancestry_gate_accepts_main_history_and_rejects_unmerged_commits(self):
+        workflow = (ROOT / ".github/workflows/release.yml").read_text()
+        source = workflow.split("  source:\n", 1)[1].split("  checks:\n", 1)[0]
+        script = textwrap.dedent(source.split("        run: |\n", 1)[1])
+        with tempfile.TemporaryDirectory(prefix="njtech-ci-git-") as directory:
+            root = Path(directory)
+            remote, checkout = root / "remote.git", root / "checkout"
+            subprocess.run(["git", "init", "--bare", str(remote)], check=True, capture_output=True)
+            subprocess.run(["git", "init", "-b", "main", str(checkout)], check=True, capture_output=True)
+
+            def git(*args):
+                return subprocess.check_output(
+                    ["git", "-c", "user.name=Test", "-c", "user.email=test@example.invalid", *args],
+                    cwd=checkout, text=True, stderr=subprocess.PIPE,
+                ).strip()
+
+            git("remote", "add", "origin", str(remote))
+            git("commit", "--allow-empty", "-m", "base")
+            ancestor = git("rev-parse", "HEAD")
+            git("commit", "--allow-empty", "-m", "main advance")
+            main = git("rev-parse", "HEAD")
+            git("push", "origin", "main")
+            git("checkout", "-b", "unmerged", ancestor)
+            git("commit", "--allow-empty", "-m", "unmerged change")
+            unmerged = git("rev-parse", "HEAD")
+            for sha, expected in ((ancestor, 0), (main, 0), (unmerged, 1)):
+                with self.subTest(sha=sha):
+                    result = subprocess.run(
+                        ["bash", "-e", "-o", "pipefail", "-c", script], cwd=checkout,
+                        env=os.environ | {"GITHUB_SHA": sha}, capture_output=True, text=True, timeout=10,
+                    )
+                    self.assertEqual(result.returncode, expected, result.stderr)
+            subprocess.run(
+                ["git", "--git-dir", str(remote), "update-ref", "-d", "refs/heads/main"],
+                check=True, capture_output=True,
+            )
+            result = subprocess.run(
+                ["bash", "-e", "-o", "pipefail", "-c", script], cwd=checkout,
+                env=os.environ | {"GITHUB_SHA": main}, capture_output=True, text=True, timeout=10,
+            )
+            self.assertNotEqual(result.returncode, 0)  # A stale local ref cannot bypass a failed fetch.
+
+
+class StagingHTTPTests(unittest.TestCase):
+    def test_http_cookie_opt_in_is_rejected_outside_staging(self):
+        for environment, flag, expected in (
+            ("production", "0", True), ("staging", "0", True),
+            ("staging", "1", False), ("production", "1", None), (None, "1", None),
+        ):
+            with self.subTest(environment=environment, flag=flag):
+                values = os.environ | {"DJANGO_DEBUG": "0", "DJANGO_SECRET_KEY": "test-only-key", "STAGING_HTTP": flag}
+                values.pop("SITE_ENVIRONMENT", None)
+                if environment:
+                    values["SITE_ENVIRONMENT"] = environment
+                result = subprocess.run(
+                    [sys.executable, "-c", "import json; from config import settings as s; "
+                     "print(json.dumps([s.SESSION_COOKIE_SECURE, s.CSRF_COOKIE_SECURE, s.SESSION_COOKIE_HTTPONLY]))"],
+                    cwd=ROOT, env=values, capture_output=True, text=True, timeout=10,
+                )
+                if expected is None:
+                    self.assertNotEqual(result.returncode, 0)
+                    self.assertIn("STAGING_HTTP is only allowed", result.stderr)
+                else:
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                    self.assertEqual(json.loads(result.stdout), [expected, expected, True])
 
 
 class ComposeBoundaryTests(unittest.TestCase):
@@ -472,6 +541,20 @@ class ComposeBoundaryTests(unittest.TestCase):
         wrong["services"]["web"]["environment"]["DJANGO_DEBUG"] = "1"
         with self.assertRaisesRegex(ValueError, "Debug is not allowed in a deployed environment"):
             runtime.validate(wrong, "staging")
+
+    def test_http_opt_in_only_allowed_for_staging(self):
+        from copy import deepcopy
+
+        document = deepcopy(self.document)
+        document["services"]["web"]["environment"]["STAGING_HTTP"] = "1"
+        runtime.validate(document, "staging")
+        document["services"]["web"]["environment"]["SITE_ENVIRONMENT"] = "production"
+        with self.assertRaisesRegex(ValueError, "STAGING_HTTP is only allowed"):
+            runtime.validate(document, "staging")
+        document["services"]["web"]["environment"]["SITE_ENVIRONMENT"] = "staging"
+        document["name"] = "namelist-production"
+        with self.assertRaisesRegex(ValueError, "STAGING_HTTP is only allowed"):
+            runtime.validate(document, "production")
 
     def test_deployed_secrets_cannot_point_to_other_environment(self):
         from copy import deepcopy

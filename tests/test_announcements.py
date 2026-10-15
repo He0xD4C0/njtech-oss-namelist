@@ -11,7 +11,7 @@ from bulletins.models import Announcement, AnnouncementReceipt
 from bulletins.services import pending_announcements
 from core.models import User
 
-pytestmark = pytest.mark.django_db
+pytestmark = [pytest.mark.django_db, pytest.mark.usefixtures("initialized_site")]
 
 
 @pytest.fixture

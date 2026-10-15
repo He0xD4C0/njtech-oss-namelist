@@ -1,0 +1,3 @@
+{% if form.non_field_errors %}<div class="text-red-600 mb-4" role="alert">{{ form.non_field_errors }}</div>{% endif %}
+{% for field in form.hidden_fields %}{{ field }}{{ field.errors }}{% endfor %}
+{% for field in form.visible_fields %}<div class="mb-4"><label class="block font-medium text-important mb-2" for="{{ field.id_for_label }}">{{ field.label }}</label>{{ field }}{% if field.help_text %}<p id="{{ field.auto_id }}_helptext" class="text-subtle mt-2">{{ field.help_text|safe }}</p>{% endif %}{% if field.errors %}<div id="{{ field.auto_id }}_error" class="text-red-600 mt-2" role="alert">{{ field.errors }}</div>{% endif %}</div>{% endfor %}
