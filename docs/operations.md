@@ -1,0 +1,84 @@
+# 部署、备份与恢复手册
+
+## 服务器与隔离
+
+目标：AlmaLinux 10 / amd64 / 24 核 / 128 GiB / 1000 GiB。Docker 的 CentOS 官方安装文档不等同于 AlmaLinux 官方认证；安装后必须实际验证内核、cgroup v2、Compose 和 SELinux 卷访问。保持 SELinux enforcing；入口 bind mount 已使用 `:Z`。不要为绕过权限问题关闭 SELinux。新服务器接入、软件安装及远程命令必须在授权后执行。
+
+生产项目 `namelist-production` 与固定预发布项目 `namelist-staging` 独立：卷、backend/frontend/egress 网络、数据库角色密码、Fernet 根密钥、bootstrap secret、域名、OAuth应用、SMTP、Webhook secret、外部存储前缀均分别配置。默认扫描并发生产 2、预发布 1；两套服务的内存/CPU上限在 Compose 中明确，总和给系统、入口与恢复留余量。不得用预发布容器连接生产数据库。
+
+每个环境在 `/srv/namelist/<environment>/runtime.env` 保存自己的非秘密运行配置；从 `.env.example` 派生，所有应用镜像用 `@sha256:`，不把 :latest 当正式发布。生产和预发布的 `SECRET_DIR` 不能相同。Compose 的命名卷由各自项目名生成，不设置跨环境共用 `container_name`。
+
+PostgreSQL 与 Redis 不映射宿主端口。DB只加入内部 backend 和独立备份出口网络，Redis只加入 backend；应用的网络按所需 Git/API/SMTP 出站提供，入口只连接两套 frontend 网。Web/扫描/维护容器均不挂载 Docker socket。
+
+## 服务器 Secrets
+
+各环境的 `/srv/namelist/<environment>/secrets` 独立目录内放置以下单行文件；部署检查拒绝跨环境目录或符号链接指向共用密钥目录：
+
+| 文件 | 用途 |
+|---|---|
+| `django_secret` | Django 签名密钥 |
+| `app_encryption_key` | URL-safe Base64 的 32-byte Fernet 根密钥 |
+| `bootstrap_secret` | 首次激活一次性环境凭据 |
+| `db_password` | 无超级权限的应用角色密码 |
+| `db_admin_password` | PostgreSQL 管理角色密码，应用容器不挂载 |
+| `backup_s3_key` / `backup_s3_secret` | 独立异地备份存储身份，不是头像身份 |
+| `backup_cipher` | 至少 32 字符高熵 pgBackRest 客户端加密口令 |
+
+使用密码管理器生成并站外保管；不要将任何值、完整容器 inspect、带 Secrets 的环境导出或 pgBackRest 配置贴入工单。Fernet、备份口令及 S3 身份也必须站外备存。只有备份文件而没有解密密钥不构成可恢复备份。
+
+Compose 的 `file:` secret 是 bind mount，不是加密保险库，也不保证把源文件改为声明的 uid/mode。目录由受信服务器用户管理并限制 0700；被逐文件挂载的文件应允许容器的 app(uid 10001) 或 postgres(uid 999)读取。可用受保护目录内的只读 0444文件（目录阻止其他宿主用户进入），或受控 ACL；上线检查两个非 root 容器实际能读且不能写。Docker 操作权限本身相当于主机管理权限。
+
+服务端应用修复命令使用镜像中的 CLI，例如通过 `docker compose run --rm --no-deps web python manage.py help` 查看配置修复实际参数。不要重新开启永久公网 bootstrap bypass 来修复 SMTP/Turnstile。
+
+## 共享入口 NginxUI
+
+[官方 bundled 镜像](https://nginxui.com/guide/getting-started) 默认把 80 端口代理到管理界面。本仓库覆盖 `nginx.conf`，只 include `sites-enabled`，明确不 include 官方 `conf.d/nginx-ui.conf`；未配置域名拒绝 HTTP / TLS，不能因默认 vhost 导致公网管理界面泄漏。
+
+两套 frontend 网络存在后启动单独 edge 项目：
+
+```sh
+docker compose -f deploy/edge/compose.yaml config --quiet
+docker compose -f deploy/edge/compose.yaml up --detach
+ssh -L 9000:127.0.0.1:9000 SERVER
+```
+
+在本机 `http://127.0.0.1:9000` 完成 NginxUI 安装。安装 secret 位于其持久配置目录 `.install_secret`，只通过已授权 SSH/服务器控制台读取，不能放在公共链接里。UI端口仅绑定宿主 loopback；不要添加公共 `/nginx-ui` 反代站点。升级后继续实际验证公网 HTTP/TLS 未暴露 UI。
+
+用 `deploy/edge/site.conf.example` 创建各环境站点，替换域名、环境别名、NginxUI选中的真实证书路径。先 `nginx -t`，再启用。示例证书占位符故意不可直接启动，不能用伪证书冒充 TLS 验收。验证浏览器、公网 `curl`、OAuth callback、Webhook URL、真实客户端IP限流。应用 `TRUST_EDGE_CLIENT_IP=1` 只适用于这条受控入口路径。
+
+## pgBackRest 备份
+
+远端 S3 必须是独立站外服务；备份本机同一个磁盘不算异地。`BACKUP_REPO_TYPE=s3`，`BACKUP_REPO_PATH` 分别固定 `/namelist/staging` 与 `/namelist/production`；部署检查拒绝误接另一套环境。endpoint 填 hostname 而非 URL；开启 TLS 校验，没有生产跳过证书验证选项。使用 `aes-256-cbc` 客户端加密、zstd 压缩。
+
+维护容器每天上海时间 03:15 备份、周日全量，PostgreSQL 持续 WAL归档。首次备份和错过一周全量会自动选 full。首次人工验证：
+
+```sh
+docker compose --project-name namelist-staging --env-file /srv/namelist/staging/runtime.env run --rm --no-deps maintenance /app/deploy/backup/backup.sh full
+docker compose --project-name namelist-staging --env-file /srv/namelist/staging/runtime.env run --rm --no-deps maintenance sh -c 'python /app/deploy/backup/render-config.py && pgbackrest --stanza=namelist --output=json info'
+```
+
+`stanza-create` 与 `check` 必须成功。独立容器的私有配置在tmpfs中，运行 `info` 前先生成它，不要打印内容。
+
+保留策略为 [pgBackRest time retention](https://pgbackrest.org/configuration.html)：至少30天可恢复窗口，所需更早全量可能留得更久；差异与 WAL随它依赖的全量安全过期，不额外截短 WAL。没有会丢弃 WAL 的 archive队列容量上限。监控 WAL增长、存储剩余、S3故障和备份年龄；不能因归档受阻占满磁盘而无告警。
+
+默认 monthly 恢复演练由应用每日检查是否到期；superadmin可改 off/weekly/monthly/quarterly。维护Worker单并发，文件锁再防重复。脚本的总超时、单命令超时、CPU、内存、磁盘大小/空闲预检独立限制。恢复的所有应用表只能只读检查，不执行业务任务。
+
+## 应用不可用时独立恢复
+
+使用维护镜像覆盖入口并不依赖 Redis、Beat、现有应用 DB；仍需要独立S3和根密钥文件。不要挂载生产数据库卷作写目标：
+
+```sh
+docker compose --project-name namelist-staging --env-file /srv/namelist/staging/runtime.env run --rm --no-deps --entrypoint /app/deploy/backup/restore-drill.sh maintenance --keep
+```
+
+脚本直接读取 `APP_ENCRYPTION_KEY_FILE`，无需 Django进程。`--keep` 返回成功验证且已停止的数据目录；可附 `--backup-set 20261015-031500F` 或带 UTC offset 的 `--target-time` 实施指定恢复。常规演练不传 `--keep`，成功/失败后仅清理本次新建 `drill-*`；停止失败时保留隔离目录以免删除运行中PG。
+
+若隔离 PG 启动失败，维护卷仅保留 `/var/lib/restore/last-startup-error.log` 的最后 64 KiB，权限 0600，供服务器管理员检查；不发送到 Celery 结果、公告或邮件。不要按照损坏检查点日志中的通用提示删除 `backup_label` 来绕过恢复一致性验证。
+
+把恢复数据切换为正式数据库是**另一次显式授权操作**，此脚本没有覆盖现有实例的功能。实施前停流量与业务进程、保存原卷快照、确认PG版本与校验、根密钥和回退路径；不能用 `down -v` 或自动恢复替代迁移/发布回退。
+
+## 故障与更新
+
+任务失败和备份失败尝试向 `operations_emails` 发信，不发送解密值或带密钥错误文本。SMTP/数据库/整机本身故障时，应用内邮件不是可靠独立告警渠道；上线必须接入站外存活与备份年龄监控。
+
+镜像回退与数据库恢复分别处理。发布脚本先拉取同一批摘要，排空旧Worker/Beat，再迁移和启动；迁移失败停止推进，不自动恢复数据库或假定旧schema兼容。保留原发布包与摘要；没有真实验收不写生产成功记录。

@@ -1,0 +1,63 @@
+name: Checks
+on:
+  pull_request:
+  workflow_call:
+permissions:
+  contents: read
+jobs:
+  application:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    services:
+      postgres:
+        image: postgres:17-bookworm@sha256:3645570cccdfa447589da9f57dd740faa29b30938e861289a5574b6ca6b03826
+        env: {POSTGRES_DB: namelist, POSTGRES_USER: namelist, POSTGRES_PASSWORD: local-ci-password}
+        ports: ['5432:5432']
+        options: --health-cmd "pg_isready -U namelist" --health-interval 5s --health-timeout 5s --health-retries 12
+      redis:
+        image: redis:8-bookworm@sha256:47670742d7924adbcdb404d1288b6327815b23141969c0939b8e5d61f78c2634
+        ports: ['6379:6379']
+        options: --health-cmd "redis-cli ping" --health-interval 5s --health-timeout 5s --health-retries 12
+    env:
+      DJANGO_DEBUG: '1'
+      DJANGO_SECRET_KEY: ci-not-a-production-secret
+      APP_ENCRYPTION_KEY: MDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDA=
+      BOOTSTRAP_SECRET: ci-bootstrap-not-production
+      POSTGRES_DB: namelist
+      POSTGRES_USER: namelist
+      POSTGRES_PASSWORD: local-ci-password
+      POSTGRES_HOST: 127.0.0.1
+      REDIS_URL: redis://127.0.0.1:6379/0
+      TEST_POSTGRES: '1'
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: astral-sh/setup-uv@d0d8abe699bfb85fec6de9f7adb5ae17292296ff # v6
+        with: {version: '0.12.12', python-version: '3.12', enable-cache: true}
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with: {node-version: '22', cache: npm}
+      - run: uv sync --frozen
+      - run: npm ci --ignore-scripts --no-audit --no-fund && npm run build
+      - run: uv run --frozen python manage.py check && uv run --frozen python manage.py makemigrations --check --dry-run
+      - run: uv run --frozen python manage.py migrate --noinput && uv run --frozen python manage.py setup_periodic_tasks
+      - run: DJANGO_SETTINGS_MODULE=config.test_settings uv run --frozen pytest -m 'not scancode and not e2e'
+      - run: uv run --frozen python -m unittest discover -s deploy/tests -v
+      - run: docker compose --env-file .env.example config --quiet && docker compose -f compose.yaml -f deploy/compose.local.yaml config --quiet
+      - run: uv run --frozen playwright install --with-deps chromium
+      - run: DJANGO_SETTINGS_MODULE=config.test_settings uv run --frozen pytest -m e2e
+  detector:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - run: docker build --platform linux/amd64 --target scanner-test --tag namelist-scanner-test .
+      - run: docker run --rm --memory 12g --cpus 4 -e DJANGO_DEBUG=1 -e DJANGO_SETTINGS_MODULE=config.test_settings namelist-scanner-test
+  container-smoke:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - run: docker build --target web --tag njtech-ops-web:local .
+      - run: docker build --target postgres --tag njtech-ops-postgres:local .
+      - run: docker build --target maintenance --tag njtech-ops-maintenance:local .
+      - run: docker build --target static --tag njtech-ops-static:local .
+      - run: python3 deploy/tests/smoke_stack.py

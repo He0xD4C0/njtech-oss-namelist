@@ -1,0 +1,9 @@
+{% extends "base.html" %}{% block content %}<h1>运行时配置 / Runtime configuration</h1>
+{% if new_secret %}<div role="alert" class="alert alert-warning">新 Webhook 密钥，仅显示一次，请立即安全保存。 / New webhook secret, shown only once.<code>{{ new_secret }}</code></div>{% endif %}
+<form method="post" class="card card-body">{% csrf_token %}<input type="hidden" name="action" value="save">{{ form.as_p }}<button class="btn btn-primary">保存 / Save</button></form>
+<form method="post" class="my-3">{% csrf_token %}
+<button name="action" value="test-smtp" class="btn">测试 SMTP / Test SMTP</button><button name="action" value="test-s3" class="btn">测试头像 S3 / Test avatar S3</button>
+<button name="action" value="sync-documents" class="btn">同步政策正文 / Sync policy documents</button><button name="action" value="sync-licenses" class="btn">同步许可证策略 / Sync license policy</button>
+<button name="action" value="license-webhook" class="btn">生成/轮换许可证 Webhook 密钥 / Rotate license webhook secret</button><button name="action" value="policy-webhook" class="btn">生成/轮换政策 Webhook 密钥 / Rotate policy webhook secret</button></form>
+<p>Webhook: <code>/webhooks/licenses/</code> · <code>/webhooks/documents/</code></p>
+<h2>任务状态 / Task status</h2>{% for run in sync_runs %}<p>{{ run.created_at }} {{ run.kind }} {{ run.status }} {{ run.message }}</p>{% empty %}<p>暂无任务记录 / No task records</p>{% endfor %}{% endblock %}

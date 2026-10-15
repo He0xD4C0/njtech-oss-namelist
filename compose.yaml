@@ -1,0 +1,223 @@
+name: ${COMPOSE_PROJECT_NAME:-namelist-local}
+
+x-logging: &logging
+  driver: json-file
+  options: {max-size: 20m, max-file: '5'}
+
+x-app-environment: &app-environment
+  DJANGO_DEBUG: ${DJANGO_DEBUG:-0}
+  DJANGO_ALLOWED_HOSTS: ${DJANGO_ALLOWED_HOSTS:-localhost,127.0.0.1}
+  CSRF_TRUSTED_ORIGINS: ${CSRF_TRUSTED_ORIGINS:-}
+  SITE_BASE_URL: ${SITE_BASE_URL:-http://localhost:8000}
+  SOURCE_REPOSITORY_URL: ${SOURCE_REPOSITORY_URL:-}
+  TRUST_EDGE_CLIENT_IP: ${TRUST_EDGE_CLIENT_IP:-1}
+  DJANGO_SECRET_KEY_FILE: /run/secrets/django_secret
+  APP_ENCRYPTION_KEY_FILE: /run/secrets/app_encryption_key
+  BOOTSTRAP_SECRET_FILE: /run/secrets/bootstrap_secret
+  POSTGRES_PASSWORD_FILE: /run/secrets/db_password
+  POSTGRES_DB: ${POSTGRES_DB:-namelist}
+  POSTGRES_USER: ${POSTGRES_USER:-namelist}
+  POSTGRES_HOST: db
+  POSTGRES_PORT: '5432'
+  REDIS_URL: redis://redis:6379/0
+  WORK_ROOT: /app/var/work
+  TZ: Asia/Shanghai
+
+x-backup-environment: &backup-environment
+  BACKUP_ENABLED: ${BACKUP_ENABLED:-1}
+  BACKUP_REPO_TYPE: ${BACKUP_REPO_TYPE:-s3}
+  BACKUP_REPO_PATH: ${BACKUP_REPO_PATH:-/namelist/staging}
+  BACKUP_S3_ENDPOINT: ${BACKUP_S3_ENDPOINT:-}
+  BACKUP_S3_BUCKET: ${BACKUP_S3_BUCKET:-}
+  BACKUP_S3_REGION: ${BACKUP_S3_REGION:-}
+  BACKUP_S3_URI_STYLE: ${BACKUP_S3_URI_STYLE:-path}
+  BACKUP_S3_KEY_FILE: /run/secrets/backup_s3_key
+  BACKUP_S3_SECRET_FILE: /run/secrets/backup_s3_secret
+  BACKUP_CIPHER_FILE: /run/secrets/backup_cipher
+  BACKUP_STANZA: namelist
+  BACKUP_PG_PATH: /var/lib/postgresql/data
+  BACKUP_PG_SOCKET: /var/run/postgresql
+  BACKUP_PG_USER: postgres
+  RESTORE_SCRATCH_ROOT: /var/lib/restore
+  RESTORE_TIMEOUT_SECONDS: ${RESTORE_TIMEOUT_SECONDS:-14400}
+  BACKUP_HOUR: '3'
+  BACKUP_MINUTE: '15'
+  TZ: Asia/Shanghai
+
+x-app: &app
+  image: ${APP_IMAGE:-namelist-web:local}
+  build: {context: ., target: web}
+  platform: linux/amd64
+  restart: unless-stopped
+  init: true
+  read_only: true
+  tmpfs: ['/tmp:size=256m,mode=1777']
+  security_opt: [no-new-privileges:true]
+  cap_drop: [ALL]
+  environment: *app-environment
+  secrets: [django_secret, app_encryption_key, bootstrap_secret, db_password]
+  volumes: [work:/app/var/work]
+  networks: [backend, egress]
+  depends_on:
+    db: {condition: service_healthy}
+    redis: {condition: service_healthy}
+    initialize: {condition: service_completed_successfully}
+  logging: *logging
+  stop_grace_period: 90s
+
+services:
+  db:
+    image: ${POSTGRES_BACKUP_IMAGE:-namelist-postgres:local}
+    build: {context: ., target: postgres}
+    platform: linux/amd64
+    restart: unless-stopped
+    shm_size: 1gb
+    environment:
+      <<: *backup-environment
+      POSTGRES_USER: postgres
+      POSTGRES_DB: ${POSTGRES_DB:-namelist}
+      POSTGRES_PASSWORD_FILE: /run/secrets/db_admin_password
+      POSTGRES_INITDB_ARGS: --data-checksums --auth-host=scram-sha-256
+      APP_DB_USER: ${POSTGRES_USER:-namelist}
+      APP_DB_PASSWORD_FILE: /run/secrets/db_password
+    secrets: [db_admin_password, db_password, backup_s3_key, backup_s3_secret, backup_cipher]
+    volumes:
+      - database:/var/lib/postgresql/data
+      - pg_socket:/var/run/postgresql
+      - backup_spool:/var/spool/pgbackrest
+      - local_backups:/var/lib/pgbackrest
+    tmpfs: ['/etc/pgbackrest:uid=999,gid=999,mode=0700', '/var/log/pgbackrest:uid=999,gid=999,mode=0700']
+    networks: [backend, backup_egress]
+    healthcheck:
+      # The image's first-run temporary initialization server listens only on its socket.
+      # Probe TCP so application migrations do not start before final initialization.
+      test: [CMD-SHELL, 'pg_isready -h 127.0.0.1 -U postgres -d "$${POSTGRES_DB}"']
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 30s
+    mem_limit: ${DB_MEMORY:-8g}
+    cpus: ${DB_CPUS:-4}
+    logging: *logging
+    stop_grace_period: 120s
+
+  redis:
+    image: redis:8-bookworm@sha256:47670742d7924adbcdb404d1288b6327815b23141969c0939b8e5d61f78c2634
+    platform: linux/amd64
+    command: [redis-server, --appendonly, 'yes', --appendfsync, everysec, --maxmemory, 1536mb, --maxmemory-policy, noeviction]
+    restart: unless-stopped
+    volumes: [redis_data:/data]
+    networks: [backend]
+    healthcheck: {test: [CMD, redis-cli, ping], interval: 10s, timeout: 5s, retries: 10}
+    mem_limit: 2g
+    cpus: '1'
+    logging: *logging
+
+  initialize:
+    <<: *app
+    command: [initialize]
+    restart: 'no'
+    depends_on:
+      db: {condition: service_healthy}
+      redis: {condition: service_healthy}
+    mem_limit: 1g
+
+  web:
+    <<: *app
+    networks:
+      backend: {}
+      frontend: {aliases: ['${SITE_ENVIRONMENT:-staging}-web']}
+    expose: ['8000']
+    healthcheck:
+      test: [CMD, /app/scripts/entrypoint.sh, python, /app/deploy/healthcheck.py]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    mem_limit: 2g
+    cpus: '2'
+
+  static:
+    image: ${STATIC_IMAGE:-namelist-static:local}
+    build: {context: ., target: static}
+    platform: linux/amd64
+    restart: unless-stopped
+    read_only: true
+    tmpfs: ['/tmp:size=64m,mode=1777']
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    networks:
+      frontend: {aliases: ['${SITE_ENVIRONMENT:-staging}-static']}
+    healthcheck: {test: [CMD, wget, -q, -O, /dev/null, 'http://127.0.0.1:8080/healthz'], interval: 30s, timeout: 5s, retries: 5}
+    mem_limit: 128m
+    cpus: '0.5'
+    logging: *logging
+
+  worker:
+    <<: *app
+    command: [celery, -A, config, worker, --loglevel=INFO, --queues=celery, '--concurrency=${WORKER_CONCURRENCY:-4}', --max-tasks-per-child=100, --soft-time-limit=1740, --time-limit=1800]
+    mem_limit: 4g
+    cpus: '3'
+
+  scanner:
+    <<: *app
+    image: ${SCANNER_IMAGE:-namelist-scanner:local}
+    build: {context: ., target: scanner}
+    command: [celery, -A, config, worker, --loglevel=INFO, --queues=scan, '--concurrency=${SCAN_CONCURRENCY:-2}', --max-tasks-per-child=10, --soft-time-limit=6600, --time-limit=7200]
+    volumes: [work:/app/var/work, scanner_cache:/home/app]
+    tmpfs: ['/tmp:size=2g,mode=1777']
+    mem_limit: ${SCAN_MEMORY:-16g}
+    cpus: ${SCAN_CPUS:-4}
+    stop_grace_period: 600s
+
+  beat:
+    <<: *app
+    command: [celery, -A, config, beat, --loglevel=INFO, --scheduler=django_celery_beat.schedulers:DatabaseScheduler, --pidfile=/tmp/celerybeat.pid]
+    mem_limit: 512m
+    cpus: '0.5'
+    # Do not scale Beat: one scheduler per independently configured environment.
+
+  maintenance:
+    <<: *app
+    image: ${MAINTENANCE_IMAGE:-namelist-maintenance:local}
+    build: {context: ., target: maintenance}
+    environment:
+      <<: [*app-environment, *backup-environment]
+      WORK_ROOT: /var/lib/restore/work
+    secrets: [django_secret, app_encryption_key, bootstrap_secret, db_password, backup_s3_key, backup_s3_secret, backup_cipher]
+    volumes:
+      - database:/var/lib/postgresql/data:ro
+      - pg_socket:/var/run/postgresql
+      - backup_spool:/var/spool/pgbackrest
+      - local_backups:/var/lib/pgbackrest
+      - restore_scratch:/var/lib/restore
+    tmpfs: ['/tmp:size=512m,mode=1777', '/etc/pgbackrest:uid=999,gid=999,mode=0700', '/var/log/pgbackrest:uid=999,gid=999,mode=0700']
+    mem_limit: 8g
+    cpus: '2'
+    stop_grace_period: 600s
+
+networks:
+  backend: {internal: true}
+  frontend: {}
+  egress: {}
+  backup_egress: {}
+
+volumes:
+  database: {}
+  redis_data: {}
+  work: {}
+  scanner_cache: {}
+  pg_socket: {}
+  backup_spool: {}
+  local_backups: {}
+  restore_scratch: {}
+
+secrets:
+  django_secret: {file: '${SECRET_DIR:-./secrets}/django_secret'}
+  app_encryption_key: {file: '${SECRET_DIR:-./secrets}/app_encryption_key'}
+  bootstrap_secret: {file: '${SECRET_DIR:-./secrets}/bootstrap_secret'}
+  db_password: {file: '${SECRET_DIR:-./secrets}/db_password'}
+  db_admin_password: {file: '${SECRET_DIR:-./secrets}/db_admin_password'}
+  backup_s3_key: {file: '${SECRET_DIR:-./secrets}/backup_s3_key'}
+  backup_s3_secret: {file: '${SECRET_DIR:-./secrets}/backup_s3_secret'}
+  backup_cipher: {file: '${SECRET_DIR:-./secrets}/backup_cipher'}

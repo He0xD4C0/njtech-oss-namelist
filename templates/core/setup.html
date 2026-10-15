@@ -1,0 +1,9 @@
+{% extends "base.html" %}{% block content %}<h1>站点初始化 / Site initialization</h1>
+{% if not authorized %}<form method="post">{% csrf_token %}<input type="hidden" name="action" value="authorize"><label>服务器初始化密钥 / Bootstrap secret <input type="password" name="secret" required autocomplete="off"></label><button class="btn btn-primary">验证 / Verify</button></form>
+{% else %}<p>激活后此入口永久关闭。所有密钥留空保持不变，绝不回显。 / This entry closes after activation. Blank secret fields retain existing values.</p>
+<form method="post" class="card card-body">{% csrf_token %}<input type="hidden" name="action" value="configure">{{ config_form.as_p }}<button class="btn btn-primary">保存配置 / Save configuration</button></form>
+<form method="post">{% csrf_token %}<button name="action" value="sync" class="btn">同步政策及许可证 / Sync policies and licenses</button></form>
+{% if not site_state.bootstrap_user_id %}<h2>初始超管邮箱验证 / Initial superadmin email</h2><form method="post">{% csrf_token %}<input type="hidden" name="action" value="account">{{ account_form.as_p }}<button class="btn btn-primary">创建并发送验证邮件 / Create and send verification email</button></form>
+{% else %}<p>初始账号 / Initial account: {{ site_state.bootstrap_user.username }}</p><form method="post">{% csrf_token %}<button name="action" value="resend" class="btn">重新发送验证邮件 / Resend verification</button></form>{% endif %}
+<form method="post">{% csrf_token %}<button name="action" value="activate" class="btn btn-success">完成激活 / Activate site</button></form>
+{% for run in sync_runs %}<p>{{ run.created_at }} {{ run.kind }} {{ run.status }} {{ run.message }}</p>{% endfor %}{% endif %}{% endblock %}

@@ -1,0 +1,95 @@
+from django.contrib.auth.models import AbstractUser
+from django.core.validators import RegexValidator
+from django.db import models
+
+username_validator = RegexValidator(r"^[a-z0-9_-]{3,32}$", "使用 3–32 位小写字母、数字、连字符或下划线。")
+
+
+class User(AbstractUser):
+    username = models.CharField(max_length=32, unique=True, validators=[username_validator])
+    email = models.EmailField(unique=True)
+    full_name = models.CharField(max_length=150, blank=True)
+    public_email = models.BooleanField(default=False)
+    language = models.CharField(
+        max_length=16, blank=True, choices=[("zh-hans", "简体中文"), ("en", "English")]
+    )
+    quota = models.PositiveIntegerField(default=64)
+    avatar_key = models.CharField(max_length=300, blank=True)
+    avatar_revision = models.PositiveIntegerField(default=0)
+
+    def clean(self):
+        super().clean()
+        username_validator(self.username)
+        self.email = self.email.lower()
+
+    def get_full_name(self):
+        return self.full_name or self.username
+
+    def save(self, *args, **kwargs):
+        self.email = self.email.lower()
+        super().save(*args, **kwargs)
+
+    class Meta(AbstractUser.Meta):
+        constraints = [
+            models.UniqueConstraint(models.functions.Lower("email"), name="unique_normalized_user_email")
+        ]
+
+
+class RuntimeSetting(models.Model):
+    key = models.CharField(max_length=80, unique=True)
+    value = models.TextField(blank=True)
+    secret = models.BooleanField(default=False)
+    updated_at = models.DateTimeField(auto_now=True)
+    updated_by = models.ForeignKey(User, null=True, on_delete=models.SET_NULL)
+
+
+class SiteState(models.Model):
+    id = models.PositiveSmallIntegerField(primary_key=True, default=1, editable=False)
+    activated_at = models.DateTimeField(null=True, blank=True)
+    bootstrap_user = models.ForeignKey(User, null=True, blank=True, on_delete=models.SET_NULL)
+
+
+class PolicyDocument(models.Model):
+    kind = models.CharField(
+        max_length=16, choices=[("privacy", "Privacy"), ("terms", "Terms"), ("inclusion", "Inclusion")]
+    )
+    language = models.CharField(max_length=16)
+    body = models.TextField()
+    source_sha = models.CharField(max_length=64)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        constraints = [models.UniqueConstraint(fields=["kind", "language"], name="unique_policy_language")]
+
+
+class PolicyConsent(models.Model):
+    user = models.ForeignKey(User, on_delete=models.CASCADE)
+    language = models.CharField(max_length=16)
+    versions = models.JSONField()
+    created_at = models.DateTimeField(auto_now_add=True)
+
+
+class AuditEvent(models.Model):
+    actor = models.ForeignKey(User, null=True, on_delete=models.SET_NULL)
+    action = models.CharField(max_length=100)
+    subject = models.CharField(max_length=200, blank=True)
+    detail = models.JSONField(default=dict)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+
+class SyncRun(models.Model):
+    kind = models.CharField(max_length=32)
+    status = models.CharField(max_length=16)
+    source_sha = models.CharField(max_length=64, blank=True)
+    message = models.TextField(blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+
+class SourceSyncState(models.Model):
+    kind = models.CharField(max_length=32, unique=True)
+    generation = models.PositiveIntegerField(default=0)
+
+
+class PendingAvatarDeletion(models.Model):
+    key = models.CharField(max_length=300, unique=True)
+    created_at = models.DateTimeField(auto_now_add=True)

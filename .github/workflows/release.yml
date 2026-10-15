@@ -1,0 +1,82 @@
+name: Release and staging
+on:
+  push:
+    branches: [main]
+permissions:
+  contents: read
+concurrency:
+  group: release-staging
+  cancel-in-progress: false
+jobs:
+  checks:
+    uses: ./.github/workflows/checks.yml
+  images:
+    needs: checks
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    permissions: {contents: read, packages: write}
+    strategy:
+      fail-fast: false
+      matrix: {target: [web, scanner, maintenance, postgres, static]}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
+      - name: GHCR login
+        env: {GH_TOKEN: '${{ github.token }}'}
+        run: printf '%s' "$GH_TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
+      - name: Image name
+        id: image
+        run: echo "name=ghcr.io/${GITHUB_REPOSITORY,,}-${{ matrix.target }}" >> "$GITHUB_OUTPUT"
+      - uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
+        id: build
+        with:
+          context: .
+          target: ${{ matrix.target }}
+          platforms: linux/amd64
+          push: true
+          tags: ${{ steps.image.outputs.name }}:${{ github.sha }}
+          labels: |
+            org.opencontainers.image.source=https://github.com/${{ github.repository }}
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.licenses=AGPL-3.0-only
+          cache-from: type=gha,scope=${{ matrix.target }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.target }}
+          provenance: true
+          sbom: true
+      - name: Record immutable digest
+        env:
+          IMAGE_NAME: ${{ steps.image.outputs.name }}
+          DIGEST: ${{ steps.build.outputs.digest }}
+          TARGET: ${{ matrix.target }}
+        run: python deploy/release/manifest.py image "$TARGET" "$IMAGE_NAME@$DIGEST" "$GITHUB_SHA" image.json
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with: {name: 'image-${{ matrix.target }}', path: image.json, retention-days: 90}
+  bundle:
+    needs: images
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with: {pattern: 'image-*', path: digests}
+      - run: python deploy/release/manifest.py bundle digests release.json "$GITHUB_SHA" "$GITHUB_RUN_ID"
+      - run: tar -czf deployment.tar.gz compose.yaml deploy/backup deploy/postgres deploy/static deploy/edge deploy/release release.json .env.example README.md LICENSE
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with: {name: release-bundle, path: 'deployment.tar.gz', retention-days: 90}
+  staging:
+    needs: bundle
+    runs-on: ubuntu-24.04
+    environment: staging
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with: {name: release-bundle, path: release}
+      - name: Deploy staging by digest
+        env:
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
+          DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          DEPLOY_KNOWN_HOSTS: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
+          RELEASE_ENVIRONMENT: staging
+          RELEASE_ID: ${{ github.run_id }}-${{ github.sha }}
+        run: bash deploy/release/ssh-deploy.sh

@@ -1,0 +1,10 @@
+{% load ui %}<article class="card repository-card {% if card.historical %}repository-historical{% endif %}">
+  <div class="card-body">
+    <div class="repository-topline"><span class="platform-label">{{ card.platform_label }}</span><span class="repository-stars" aria-label="{% ui 'Star 总数' 'Stars' %}"><span aria-hidden="true">☆</span> {{ card.stars }}</span></div>
+    <h3 class="repository-title"><a href="{{ card.html_url }}" target="_blank" rel="noopener noreferrer">{{ card.full_name }}</a><span aria-hidden="true" class="external-arrow">↗</span></h3>
+    <p class="repository-description">{{ card.description|default:'—' }}</p>
+    <div class="repository-badges">{% for label in card.license_labels %}<span class="badge bg-blue-lt">{{ label }}</span>{% endfor %}{% if card.archived %}<span class="badge bg-secondary-lt">archived</span>{% endif %}{% if card.fork %}<span class="badge bg-purple-lt">Fork</span>{% endif %}{% if card.historical %}<span class="badge bg-orange-lt">{% ui '历史记录' 'Historical' %}</span>{% endif %}</div>
+    {% if card.fork %}<div class="repository-upstream">{% ui '派生自' 'Forked from' %} {% if card.upstream_url %}<a href="{{ card.upstream_url }}" target="_blank" rel="noopener noreferrer">{{ card.upstream_name|default:card.upstream_url }}</a>{% else %}{% ui '来源当前不可用' 'Upstream currently unavailable' %}{% endif %}</div>{% endif %}
+  </div>
+  <div class="card-footer repository-foot"><a href="{% url 'directory:profile' card.user.username %}">@{{ card.user.username }}</a><span>{% if card.commit_at %}{% ui '提交于' 'Commit' %} <time datetime="{{ card.commit_at|date:'c' }}">{{ card.commit_at|date:'Y-m-d' }}</time>{% else %}{% ui '暂无提交时间' 'No commit date' %}{% endif %}</span></div>
+</article>

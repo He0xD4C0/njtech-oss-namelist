@@ -1,0 +1,14 @@
+{
+  "name": "njtech-oss-namelist-assets",
+  "private": true,
+  "version": "0.1.0",
+  "license": "AGPL-3.0-only",
+  "scripts": {
+    "build": "node scripts/vendor-assets.mjs"
+  },
+  "dependencies": {
+    "@tabler/core": "1.4.0",
+    "easymde": "2.20.0",
+    "font-awesome": "4.7.0"
+  }
+}

@@ -1,0 +1,31 @@
+name: namelist-edge
+services:
+  edge:
+    image: uozi/nginx-ui@sha256:d009a852752a62f6621765a352373d4b43d2ce3bdae5f17b0c9ba634659b2622
+    platform: linux/amd64
+    restart: unless-stopped
+    environment:
+      TZ: Asia/Shanghai
+      NGINX_UI_PRESERVE_BUNDLED_CONF: 'true'
+    ports:
+      - '${EDGE_HTTP_BIND:-0.0.0.0}:80:80'
+      - '${EDGE_HTTPS_BIND:-0.0.0.0}:443:443'
+      - '127.0.0.1:9000:9000'
+    volumes:
+      - nginx_state:/etc/nginx
+      - nginx_ui_state:/etc/nginx-ui
+      - acme_webroot:/var/www
+      # Never include the official public nginx-ui.conf, even after an image upgrade.
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro,Z
+      - ./00-deny.conf:/etc/nginx/sites-enabled/00-deny.conf:ro,Z
+    networks: [production_web, staging_web]
+    healthcheck: {test: [CMD, nginx, -t], interval: 30s, timeout: 5s, retries: 5}
+    logging: {driver: json-file, options: {max-size: 20m, max-file: '5'}}
+    mem_limit: 1g
+networks:
+  production_web: {external: true, name: '${PRODUCTION_WEB_NETWORK:-namelist-production_frontend}'}
+  staging_web: {external: true, name: '${STAGING_WEB_NETWORK:-namelist-staging_frontend}'}
+volumes:
+  nginx_state: {}
+  nginx_ui_state: {}
+  acme_webroot: {}

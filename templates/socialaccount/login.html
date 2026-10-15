@@ -1,0 +1,11 @@
+{% extends 'base.html' %}
+{% load ui %}
+{% block title %}{% ui '平台授权' 'Platform authorization' %}{% endblock %}
+{% block content %}<section class="card mx-auto" style="max-width: 34rem"><div class="card-body">
+<h1>{{ provider.name }} · {% if process == 'connect' %}{% ui '绑定账号' 'Connect account' %}{% else %}{% ui '登录或注册' 'Sign in or register' %}{% endif %}</h1>
+<p class="text-secondary">{% ui '将跳转到平台完成 OAuth 授权，仅申请查询身份所需的权限，不申请私有仓库访问权限。' 'Continue to the platform for OAuth authorization. We request identity permissions only, never private-repository access.' %}</p>
+{% if security_error %}<div class="alert alert-danger" role="alert">{{ security_error }}</div>{% endif %}
+<form method="post">{% csrf_token %}
+{% if not user.is_authenticated %}{% if turnstile_site_key %}<div class="cf-turnstile" data-sitekey="{{ turnstile_site_key }}"></div><script src="https://challenges.cloudflare.com/turnstile/v0/api.js" async defer></script>{% else %}<p class="alert alert-warning">{% ui '安全验证尚未配置，暂不可登录。' 'Security verification is not configured. Sign-in is temporarily unavailable.' %}</p>{% endif %}{% endif %}
+<button type="submit" class="btn btn-primary" {% if not user.is_authenticated and not turnstile_site_key %}disabled{% endif %}>{% ui '继续授权' 'Continue authorization' %}</button>
+</form></div></section>{% endblock %}

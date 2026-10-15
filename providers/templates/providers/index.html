@@ -1,0 +1,22 @@
+{% extends 'base.html' %}
+{% load ui %}
+{% block title %}{% ui '仓库平台绑定' 'Repository platform connections' %}{% endblock %}
+{% block content %}
+<div class="page-header"><div><h1>{% ui '仓库平台绑定' 'Repository platform connections' %}</h1><p class="text-secondary">{% ui '每个平台可绑定一个账号。只能添加该账号直接拥有的公开 Git 仓库，解绑将立即撤下该平台的全部公开收录内容。' 'Connect one account per platform. Only directly owned public Git repositories are eligible. Disconnecting immediately withdraws every public entry from that platform.' %}</p></div></div>
+<div class="row row-cards">
+{% for platform in platforms %}<div class="col-md-4"><section class="card h-100"><div class="card-body">
+  <h2 class="card-title">{{ platform.name }}</h2>
+  {% if platform.binding %}
+    <p>{% ui '已绑定' 'Connected' %}: <strong>{{ platform.binding.username }}</strong></p>
+    <p class="text-secondary">ID: {{ platform.binding.platform_user_id }}</p>
+    <a class="btn btn-primary mb-3" href="{% url 'repositories:index' %}?platform={{ platform.id }}">{% ui '选择仓库' 'Choose repositories' %}</a>
+    {% if platform.enabled %}<form method="post" action="{{ platform.login_url }}?process=connect">{% csrf_token %}<button class="btn btn-outline-primary mb-3" type="submit">{% ui '重新授权' 'Reauthorize' %}</button></form>{% endif %}
+    <details><summary>{% ui '解绑此平台' 'Disconnect this platform' %}</summary><form method="post" action="{% url 'providers:disconnect' %}" class="mt-3">{% csrf_token %}<input type="hidden" name="platform" value="{{ platform.id }}"><label class="form-check"><input class="form-check-input" type="checkbox" name="confirm" required><span class="form-check-label">{% ui '我确认立即撤下该平台全部公开收录内容' 'I confirm the immediate withdrawal of all public entries on this platform' %}</span></label><button type="submit" class="btn btn-danger mt-2">{% ui '确认解绑' 'Confirm disconnection' %}</button></form></details>
+  {% elif platform.enabled %}
+    <p class="text-secondary">{% ui '尚未绑定' 'Not connected' %}</p><form method="post" action="{{ platform.login_url }}?process=connect">{% csrf_token %}<button type="submit" class="btn btn-primary">{% ui '通过 OAuth 绑定' 'Connect with OAuth' %}</button></form>
+  {% else %}
+    <p class="text-secondary">{% ui '平台尚未配置，暂不可绑定。' 'This platform is not configured yet.' %}</p><button class="btn btn-secondary" type="button" disabled>{% ui '暂不可用' 'Unavailable' %}</button>
+  {% endif %}
+</div></section></div>{% endfor %}
+</div>
+{% endblock %}
