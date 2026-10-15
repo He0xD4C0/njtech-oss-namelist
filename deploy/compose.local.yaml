@@ -5,7 +5,7 @@ x-local-env: &local-env
   DJANGO_ALLOWED_HOSTS: localhost,127.0.0.1,testserver
   CSRF_TRUSTED_ORIGINS: http://localhost:18000,http://127.0.0.1:18000
   SITE_BASE_URL: http://localhost:18000
-  TRUST_EDGE_CLIENT_IP: '0'
+  TRUST_PROXY_HEADERS: '0'
   DJANGO_SECRET_KEY_FILE: ''
   APP_ENCRYPTION_KEY_FILE: ''
   BOOTSTRAP_SECRET_FILE: ''
@@ -36,8 +36,7 @@ services:
   web:
     environment: *local-env
     secrets: !reset []
-  static:
-    ports: ['127.0.0.1:18001:8080']
+    ports: !override ['127.0.0.1:18000:8000']
   worker:
     environment: *local-env
     secrets: !reset []
@@ -58,23 +57,5 @@ services:
   mailpit:
     image: axllent/mailpit:v1.27
     ports: ['127.0.0.1:18025:8025']
-    networks: [backend, frontend]
+    networks: [backend, egress]
     # Runtime SMTP: host=mailpit, port=1025, security=none; it is NOT a real delivery proof.
-  localproxy:
-    image: ${STATIC_IMAGE:-namelist-static:local}
-    platform: linux/amd64
-    restart: unless-stopped
-    read_only: true
-    cap_drop: [ALL]
-    tmpfs: ['/tmp:size=64m,mode=1777']
-    volumes: ['./deploy/local-nginx.conf:/etc/nginx/nginx.conf:ro']
-    ports: ['127.0.0.1:18000:8080']
-    networks: [frontend]
-    depends_on:
-      web: {condition: service_healthy}
-      static: {condition: service_healthy}
-    healthcheck:
-      test: [CMD, wget, -q, -O, /dev/null, 'http://127.0.0.1:8080/static/vendor/tabler/tabler.min.css']
-      interval: 5s
-      timeout: 3s
-      retries: 12

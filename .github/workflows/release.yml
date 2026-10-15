@@ -1,11 +1,11 @@
-name: Release and staging
+name: Dev CI
 on:
   push:
-    branches: [main]
+    tags: ['dev-*']
 permissions:
   contents: read
 concurrency:
-  group: release-staging
+  group: dev-ci-${{ github.ref }}
   cancel-in-progress: false
 jobs:
   checks:
@@ -17,7 +17,7 @@ jobs:
     permissions: {contents: read, packages: write}
     strategy:
       fail-fast: false
-      matrix: {target: [web, scanner, maintenance, postgres, static]}
+      matrix: {target: [web, scanner, maintenance, postgres]}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
@@ -34,7 +34,7 @@ jobs:
           target: ${{ matrix.target }}
           platforms: linux/amd64
           push: true
-          tags: ${{ steps.image.outputs.name }}:${{ github.sha }}
+          tags: ${{ steps.image.outputs.name }}:ci-${{ github.run_id }}-${{ github.run_attempt }}
           labels: |
             org.opencontainers.image.source=https://github.com/${{ github.repository }}
             org.opencontainers.image.revision=${{ github.sha }}
@@ -48,35 +48,20 @@ jobs:
           IMAGE_NAME: ${{ steps.image.outputs.name }}
           DIGEST: ${{ steps.build.outputs.digest }}
           TARGET: ${{ matrix.target }}
-        run: python deploy/release/manifest.py image "$TARGET" "$IMAGE_NAME@$DIGEST" "$GITHUB_SHA" image.json
+          SOURCE_TAG: ${{ github.ref_name }}
+        run: python scripts/ci_manifest.py image "$TARGET" "$IMAGE_NAME@$DIGEST" "$GITHUB_SHA" "$SOURCE_TAG" "$GITHUB_RUN_ID" "$GITHUB_RUN_ATTEMPT" image.json
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
-        with: {name: 'image-${{ matrix.target }}', path: image.json, retention-days: 90}
+        with: {name: 'image-${{ matrix.target }}-${{ github.run_attempt }}', path: image.json, retention-days: 90}
   bundle:
     needs: images
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
-        with: {pattern: 'image-*', path: digests}
-      - run: python deploy/release/manifest.py bundle digests release.json "$GITHUB_SHA" "$GITHUB_RUN_ID"
-      - run: tar -czf deployment.tar.gz compose.yaml deploy/backup deploy/postgres deploy/static deploy/edge deploy/release release.json .env.example README.md LICENSE
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
-        with: {name: release-bundle, path: 'deployment.tar.gz', retention-days: 90}
-  staging:
-    needs: bundle
-    runs-on: ubuntu-24.04
-    environment: staging
-    timeout-minutes: 45
-    steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
-      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
-        with: {name: release-bundle, path: release}
-      - name: Deploy staging by digest
+        with: {pattern: 'image-*-${{ github.run_attempt }}', path: digests}
+      - name: Package CI bundle
         env:
-          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
-          DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
-          DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
-          DEPLOY_KNOWN_HOSTS: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
-          RELEASE_ENVIRONMENT: staging
-          RELEASE_ID: ${{ github.run_id }}-${{ github.sha }}
-        run: bash deploy/release/ssh-deploy.sh
+          SOURCE_TAG: ${{ github.ref_name }}
+        run: python scripts/ci_manifest.py bundle digests ci-bundle.tar.gz "$GITHUB_SHA" "$SOURCE_TAG" "$GITHUB_RUN_ID" "$GITHUB_RUN_ATTEMPT"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with: {name: ci-bundle, path: ci-bundle.tar.gz, retention-days: 90, overwrite: true}

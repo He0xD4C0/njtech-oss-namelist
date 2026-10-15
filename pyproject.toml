@@ -7,6 +7,7 @@ license = "AGPL-3.0-only"
 dependencies = [
   "Django>=5.2,<5.3", "django-allauth[socialaccount]>=65.13,<66", "django-unfold>=0.70,<1",
   "gunicorn>=23,<24", "psycopg[binary]>=3.2,<4", "httpx>=0.28,<1",
+  "whitenoise>=6.12,<7",
   "celery[redis]>=5.5,<6", "django-celery-beat>=2.8,<3", "redis>=6,<8",
   "cryptography>=45,<48", "Pillow>=11,<13", "django-storages[s3]>=1.14,<2",
   "markdown-it-py>=4,<5", "nh3>=0.3,<1", "django-ratelimit>=4.1,<5",

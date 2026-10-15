@@ -2,6 +2,8 @@
 
 此文件只描述交付边界，不把配置存在视为外部服务验证成功。
 
+CI 仅由 `dev-*` 标签触发，负责测试与构建交付；不连接服务器、不处理预发布/生产放行。`release-*`、普通分支推送和 PR 不触发 CI。手动运行统一使用 `compose.yaml`，完整产物接口见 [CI 交付与上线检查](release-acceptance.md)。
+
 ## 镜像与进程
 
 | Docker target | 用途 | 运行时 |
@@ -10,9 +12,8 @@
 | `scanner` | `scan` 队列 | 普通依赖 + uv `scanner` group，原生扫描库 |
 | `postgres` | PostgreSQL 17、持续 WAL 归档 | PostgreSQL + pgBackRest，应用无访问 Docker socket |
 | `maintenance` | `maintenance` 队列、独立备份计时器、离线恢复 | 同一普通 Python 环境 + PG 17 二进制 + pgBackRest |
-| `static` | 烘焙的 collectstatic 结果 | 非 root Nginx，8080，只响应静态与健康检查 |
 
-`npm ci` 和根目录 `scripts/vendor-assets.mjs` 是唯一前端资产来源。`collectstatic` 在镜像构建期完成；运行时只读根文件系统，不能靠启动时覆盖静态资源来更新版本。
+`npm ci` 和根目录 `scripts/vendor-assets.mjs` 是唯一前端资产来源。`collectstatic` 在镜像构建期完成，`CompressedStaticFilesStorage` 生成压缩副本但不改文件名。WhiteNoise middleware 位于 SecurityMiddleware 之后，只服务 `/static/` 对应的收集目录，保持默认非版本化缓存策略；不服务上传目录或源码。头像 S3 后端不受影响。运行时只读根文件系统，不能靠启动时覆盖静态资源来更新版本。
 
 一次性 `initialize` 服务调用 `manage.py check --deploy --fail-level ERROR`、`migrate --noinput`、`setup_periodic_tasks`。所有业务进程依赖它成功完成，避免多进程并发迁移；生产源码URL等错误会阻止初始化。本地DEBUG开发配置不冒充生产部署。初始化不创建免邮箱验证的超管；站点首次激活由应用的一次性入口完成。
 
@@ -22,9 +23,9 @@
 
 服务器密钥：`DJANGO_SECRET_KEY`、`APP_ENCRYPTION_KEY`、`BOOTSTRAP_SECRET`、`POSTGRES_PASSWORD`。`scripts/entrypoint.sh` 支持对应 `_FILE` 路径，把其内容仅注入子进程；同时给出明文变量与文件会拒绝启动，不输出内容。
 
-只有经受控 Nginx 访问的 Web 设置 `TRUST_EDGE_CLIENT_IP=1`。入口覆盖客户端提供的 `X-Real-IP` / `X-Forwarded-For`，应用对原始 XFF 不盲目信任。本地直连配置为 `0`。不得向公网发布 Web 容器端口，再假定转发头可信。
+`TRUST_PROXY_HEADERS` 默认 `0`：不信任转发协议及地址头。仅在受控外部入口覆盖 `X-Forwarded-Proto`、`X-Real-IP` 且限制应用直连时设为 `1`。启用后使用转发协议和单个有效 IP，缺失 IP 使用连接地址，非法 IP 或链返回 400；`X-Forwarded-For` 始终不作为身份来源。`APP_PORT` 只控制回环宿主端口，Web 容器固定 8000；手动预发布 18000、生产 28000，本地开发 18000。数据库与 Redis 不发布宿主端口。
 
-共享入口、本地代理及独立静态 Nginx 的访问日志统一仅记录 IP、方法、状态、字节数与耗时；Gunicorn 同样不记录 URL。不得恢复 combined/request/referer 格式，避免 OAuth query 或邮件验证路径泄漏到日志。
+Gunicorn 访问日志只记录连接 IP、方法、状态和耗时，不记录 URL、query 或 Referer；不得恢复 request/referer 格式，避免凭据泄漏。域名、证书、HTTPS、入口超时和上传限制由外部基础设施负责，仓库只交付应用 HTTP 服务。
 
 备份凭据仅挂载给 DB 和维护容器：`BACKUP_S3_KEY_FILE`、`BACKUP_S3_SECRET_FILE`、`BACKUP_CIPHER_FILE`。它们不存应用数据库、不进入 Web/扫描容器、不与头像 S3 共用。私有 pgBackRest 配置启动时生成在 tmpfs，权限 0600，不打印秘密。
 

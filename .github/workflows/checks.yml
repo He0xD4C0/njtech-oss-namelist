@@ -1,6 +1,5 @@
 name: Checks
 on:
-  pull_request:
   workflow_call:
 permissions:
   contents: read
@@ -29,6 +28,7 @@ jobs:
       POSTGRES_HOST: 127.0.0.1
       REDIS_URL: redis://127.0.0.1:6379/0
       TEST_POSTGRES: '1'
+      DATABASE_SQLITE: '0'
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - uses: astral-sh/setup-uv@d0d8abe699bfb85fec6de9f7adb5ae17292296ff # v6
@@ -56,8 +56,10 @@ jobs:
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: astral-sh/setup-uv@d0d8abe699bfb85fec6de9f7adb5ae17292296ff # v6
+        with: {version: '0.12.12', python-version: '3.12', enable-cache: true}
+      - run: uv sync --frozen && uv run --frozen playwright install --with-deps chromium
       - run: docker build --target web --tag njtech-ops-web:local .
       - run: docker build --target postgres --tag njtech-ops-postgres:local .
       - run: docker build --target maintenance --tag njtech-ops-maintenance:local .
-      - run: docker build --target static --tag njtech-ops-static:local .
-      - run: python3 deploy/tests/smoke_stack.py
+      - run: uv run --frozen python deploy/tests/smoke_stack.py

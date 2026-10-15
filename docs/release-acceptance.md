@@ -1,40 +1,48 @@
-# 发布与上线验收
+# CI 交付与手动运行
 
-## 输入门槛
+## CI 边界与产物
 
-主站公开GitHub仓库、main分支保护、GHCR权限；独立生产/预发布域名、DNS、TLS和已授权服务器接入；每环境三个OAuth应用、SMTP、Turnstile、公开GitHub许可证策略仓库、公开政策文档仓库、Webhook；站外备份S3、Fernet/备份恢复密钥与告警收件人。头像S3可不配置，但该状态必须禁用头像上传。
+`Dev CI` 只监听推送的 `dev-*` 标签。共享 Checks 执行 PostgreSQL 应用测试、运维与浏览器测试、Linux amd64 真实 ScanCode、容器及备份恢复冒烟；全部成功后才构建发布四个 GHCR 镜像。普通分支推送、PR、`release-*` 都不触发工作流。仓库没有 CD、GitHub 部署 environment、服务器 Secrets 或额外审批入口。
 
-`SOURCE_REPOSITORY_URL` 必须指向实际公开的对应源码仓库，部署SHA的源码也必须可取得；初始化deploycheck只验证配置，不能替代人工与网络检查。生产脚本进一步请求公开仓库及该SHA的tree页面；运营者仍应人工确认镜像包含的修改与对应源码一致。服务器需能以只读GHCR身份拉取发布镜像，其凭据只留服务器，不进入应用数据库。
+镜像标签为 `ci-<run-id>-<attempt>`；只用不可变 `@sha256:` 摘要选择运行版本，不提供 `latest`。每个镜像记录与最终清单都绑定同一标签、源码提交、run ID 和 attempt，不能混用其他运行的记录。失败后重试选择 **Re-run all jobs**，保证当前 attempt 的四个记录齐全。
 
-GitHub `staging` 与 `production` environments 分别配置 `DEPLOY_HOST`、`DEPLOY_USER`、`DEPLOY_SSH_KEY`、`DEPLOY_KNOWN_HOSTS`。known_hosts由受信渠道获得，不在自动化里使用首次 ssh-keyscan 代替主机认证。production environment 必须配置 required reviewers 和部署分支规则；这些仓库设置不能仅靠 workflow文件保证。
+Actions artifact `ci-bundle` 保留 90 天，下载后解压其中的 `ci-bundle.tar.gz`：
 
-## 自动与人工边界
+- `manifest.json`：`source_tag`（`dev-*` 标签字符串）、`source_sha`（40 位提交 SHA）、`ci_run_id`（正十进制字符串）、`ci_run_attempt`（正整数），以及 `images` 中的 `web`、`scanner`、`maintenance`、`postgres` 四个 GHCR 摘要。
+- `images.env`：`APP_IMAGE`、`SCANNER_IMAGE`、`MAINTENANCE_IMAGE`、`POSTGRES_BACKUP_IMAGE`，与清单逐项一致；旧五镜像清单不受支持，不可与新示例混用。
+- 唯一完整应用栈 `compose.yaml`、`.env.example`、应用/数据库/备份配套配置、只读安全校验工具和说明。固定文件白名单排除代理配置、真实凭据、本地缓存和额外脚本。
 
-`Checks`：真实PG17上的应用测试、运维边界测试、浏览器测试；Linuxamd64真实ScanCode测试。`Release and staging`：只有main检查通过才构建五个镜像，记录一批源SHA与不可变摘要、上传发布包并部署固定预发布；迁移、容器健康、公网HTTPS可达是自动门槛。
+同一提交可先打 dev 标签再打 release 标签，两个后缀无需一致。外部 CD 如何定位该提交、验证预发布、处理过期产物和生产放行不在本仓库实现。CI 成功及清单存在都不代表站点已上线或完成真实外部集成验收。
 
-**自动HTTP健康通过不等于完整验收。** 在预发布人工验证：
+## 手动 Compose 示例
 
-- 邮箱注册、真实站内邮件验证、设置密码、Turnstile拒绝/通过、频率限制与真实客户端IP。
-- GitHub/Gitee/GitLab.com实际OAuth身份及直接归属；重复绑定/越权被拒；令牌不明文存储；提交至机审公开；私有仓库排除。
-- 许可证策略作者年份/排版容差、实质条款差异、混合命中、策略同步失败保留旧版、过期任务不复活移除内容。
-- 真实Webhook签名、每日/手动兜底；政策语言和注册同意版本；修改公告即时生效与编辑者名单。
-- 手机/桌面页面、分页和URL筛选；公告跨设备只送达一次、政策逐页不可关闭且修改后重确认；archived不失格且入榜；上海跨月封榜/掉星。
-- S3未配置/故障/恢复、用户头像优先；源删除/转私有/转移与临时网络错误的区别。
-- 注销时 S3 故障、broker 投递失败及并发晚到头像上传：对象键进入持久删除队列，恢复服务后最终清理；审核发件箱在 broker 丢失及扫描进程中断后恢复，不重复公开或复活撤下记录。
-- 真实备份S3、连续WAL；从备份隔离恢复应用表/页校验和/配置解密；不覆盖两套既有卷、不启动恢复业务任务。
+在独立工作目录解压 CI 包；安装 Docker Compose 2.24.4 或更新版本及 Python 3。部署主机需能拉取 GHCR，私有拉取凭据只由主机保管。先从 `.env.example` 复制自己的 `runtime.env`，填写域名、公开源码 URL、独立备份 S3、Secrets 目录等非秘密配置。密钥文件按 [运维手册](operations.md) 独立准备，禁止使用开发覆盖配置或开发凭据。
 
-完成并留存非敏感证据（时间、环境、源SHA、五个摘要、真实流程结果及失败修复）。在当前部署的发布目录，执行服务端验收记录：
+例子使用 `staging`、`APP_PORT=18000`；生产需同步改为 `namelist-production`、`SITE_ENVIRONMENT=production`、`APP_PORT=28000`、独立 Secrets 目录及 `/namelist/production` 备份前缀。Web 只绑定宿主 `127.0.0.1`，PostgreSQL 与 Redis 不发布端口。`images.env` 无需编辑，作为第二个环境文件覆盖模板中的镜像占位符。
+
+**宿主同名环境变量优先于环境文件。** 使用无开发变量、无 `COMPOSE_*` 自定义项的专用终端；不要从已 export 开发配置的 shell 启动。不要公开打印带敏感配置的完整 Compose 输出。
 
 ```sh
-bash deploy/release/accept-staging.sh EVIDENCE_REFERENCE 'VERIFIED TLS MAIL OAUTH WEBHOOK'
+docker compose --env-file runtime.env --env-file images.env -f compose.yaml config --format json | python3 deploy/validate-compose.py staging
+docker compose --env-file runtime.env --env-file images.env -f compose.yaml pull
+# 更新既有实例时，先停止旧消费者，避免它们在迁移期间继续使用旧 schema。
+docker compose --env-file runtime.env --env-file images.env -f compose.yaml stop worker scanner beat maintenance
+docker compose --env-file runtime.env --env-file images.env -f compose.yaml up --no-build --detach --wait --wait-timeout 600
+docker compose --env-file runtime.env --env-file images.env -f compose.yaml run --rm --no-deps web python manage.py check --deploy --fail-level ERROR
 ```
 
-此命令不替用户验证前三个外部服务；它要求人工确认已完成这些项目，再执行一次真实备份与隔离恢复。只有它们成功才写 `/srv/namelist/staging/accepted/<ci-run-id>.json`，关联**同一批源SHA与所有摘要**。受控服务器用户管理验收凭证，不允许普通Web进程写入。
+任一命令失败即停止，不继续执行后续命令。`initialize` 负责初始化/迁移并且必须成功；例子不重建 CI 镜像、不自动备份回滚，也不覆盖数据库。仓库只提供应用 HTTP；域名、证书、HTTPS、入口超时与上传限制由外部基础设施负责。操作者自行验证真实公网 DNS/TLS、页面及静态资源，按 [运行时契约](runtime-contract.md) 判断是否启用可信请求头。`SOURCE_REPOSITORY_URL` 必须指向实际公开源码，清单所列 SHA 的对应源码也必须能取得；配置检查不能代替这一验证。
 
-## 生产提升
+## 外部集成与运行检查
 
-在 `Promote verified release` workflow 手动选择成功的main发布run ID、验收证据引用，并填写 `PROMOTE VERIFIED DIGEST`。受保护production environment审批后才运行。服务器再次检查上述同一批摘要验收凭证；缺失或不匹配立即拒绝，**没有新的构建步骤**。
+操作者或外部 CD 自行完成并保留证据，本仓库不生成验收凭证：
 
-初次生产仍要独立初始化自己的服务配置和首个超管验证；预发布验证不授权拷贝它的账号、OAuth token、应用密钥或数据库。生产健康验证与真实域名验收单独记录；不得把首次容器启动称作站点已具备注册条件。
+- 邮箱注册、真实邮件确认、设置密码、Turnstile 拒绝/通过、限流及真实客户端 IP。
+- 三平台实际 OAuth 身份与直接归属、重复绑定/越权拒绝、公开仓库筛选和提交至机审公开；令牌不明文持久化。
+- 许可证文本差异、名单冲突、策略同步失败保留有效版本，过期任务不复活移除内容。
+- Webhook 签名、每日及手动同步，政策语言/同意版本、公告编辑者及重新确认。
+- 桌面/手机、筛选分页、公告弹窗、archived 资格及上海时区跨月榜单。
+- S3 未配置/故障/恢复、头像优先级、注销后的持久删除重试与审核发件箱恢复。
+- 独立真实备份 S3、连续 WAL；隔离恢复的表/迁移、页校验和及配置解密，不覆盖既有卷、不启动恢复业务任务。
 
-数据库恢复永不自动覆盖原实例。旧镜像是否可与迁移后的数据库兼容，必须单独验证；GitHub环境审核也不能授权任意破坏性数据库回退。
+首次运行仍需独立完成应用服务配置、超管邮箱验证和站点激活；容器健康不能代替注册条件就绪。镜像回退和数据库恢复是独立操作，不能假定迁移后的数据库与旧镜像兼容。

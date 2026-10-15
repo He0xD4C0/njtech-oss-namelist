@@ -34,6 +34,8 @@ INSTALLED_APPS = [
 ]
 MIDDLEWARE = [
     "django.middleware.security.SecurityMiddleware",
+    "whitenoise.middleware.WhiteNoiseMiddleware",
+    "core.middleware.ProxyHeadersMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
     "django.middleware.locale.LocaleMiddleware",
     "django.middleware.common.CommonMiddleware",
@@ -99,12 +101,12 @@ ACCOUNT_ADAPTER = "core.adapters.AccountAdapter"
 ACCOUNT_FORMS = {"signup": "core.forms.SignupForm", "login": "core.forms.LoginForm"}
 ACCOUNT_LOGOUT_ON_GET = False
 ACCOUNT_RATE_LIMITS = {"login": "10/m/ip", "login_failed": "5/m/ip,5/5m/key", "signup": "5/h/ip"}
-# Set only behind the supplied edge, which overwrites this header and has sole
-# access to Web. Local/direct development deliberately ignores forwarded IPs.
-TRUST_EDGE_CLIENT_IP = os.getenv("TRUST_EDGE_CLIENT_IP", "0") == "1"
+# Enable only when a controlled external entry overwrites these headers and
+# direct application access is restricted. Forwarded address chains are never trusted.
+TRUST_PROXY_HEADERS = os.getenv("TRUST_PROXY_HEADERS", "0") == "1"
 ALLAUTH_TRUSTED_PROXY_COUNT = 0
-ALLAUTH_TRUSTED_CLIENT_IP_HEADER = "x-real-ip" if TRUST_EDGE_CLIENT_IP else None
-RATELIMIT_IP_META_KEY = "HTTP_X_REAL_IP" if TRUST_EDGE_CLIENT_IP else "REMOTE_ADDR"
+ALLAUTH_TRUSTED_CLIENT_IP_HEADER = "x-real-ip" if TRUST_PROXY_HEADERS else None
+RATELIMIT_IP_META_KEY = "HTTP_X_REAL_IP" if TRUST_PROXY_HEADERS else "REMOTE_ADDR"
 SOCIALACCOUNT_ADAPTER = "providers.adapters.SocialAdapter"
 SOCIALACCOUNT_STORE_TOKENS = False
 SOCIALACCOUNT_EMAIL_AUTHENTICATION = False
@@ -130,13 +132,17 @@ USE_TZ = True
 STATIC_URL = "/static/"
 STATIC_ROOT = BASE_DIR / "staticfiles"
 STATICFILES_DIRS = [BASE_DIR / "static"]
+STORAGES = {
+    "default": {"BACKEND": "django.core.files.storage.FileSystemStorage"},
+    "staticfiles": {"BACKEND": "whitenoise.storage.CompressedStaticFilesStorage"},
+}
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 SESSION_COOKIE_HTTPONLY = True
 SESSION_COOKIE_SECURE = not DEBUG
 CSRF_COOKIE_SECURE = not DEBUG
 SECURE_CONTENT_TYPE_NOSNIFF = True
 X_FRAME_OPTIONS = "DENY"
-SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
+SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https") if TRUST_PROXY_HEADERS else None
 SESSION_COOKIE_SAMESITE = "Lax"
 APP_ENCRYPTION_KEY = os.getenv("APP_ENCRYPTION_KEY", "")
 BOOTSTRAP_SECRET = os.getenv("BOOTSTRAP_SECRET", "")

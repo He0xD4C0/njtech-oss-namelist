@@ -3,7 +3,6 @@ ARG PYTHON_IMAGE=python:3.12-slim-bookworm@sha256:34386ef0cb081344d7ec1c103ba398
 ARG NODE_IMAGE=node:22-alpine@sha256:0a7108bf6c7bf5de370ffb1a3ed6be93d405b43ff159f681a8d18c0e2bc2e402
 ARG UV_IMAGE=ghcr.io/astral-sh/uv:0.12.12@sha256:73d2665b478d8fa2de1cf105c6841f8e9cb6b09e568fc7700440c09f8fcd7ac4
 ARG POSTGRES_IMAGE=postgres:17-bookworm@sha256:3645570cccdfa447589da9f57dd740faa29b30938e861289a5574b6ca6b03826
-ARG NGINX_IMAGE=nginx:1.28-alpine@sha256:a8b39bd9cf0f83869a2162827a0caf6137ddf759d50a171451b335cecc87d236
 
 FROM ${NODE_IMAGE} AS frontend
 WORKDIR /frontend
@@ -42,7 +41,7 @@ ENTRYPOINT ["/app/scripts/entrypoint.sh"]
 
 FROM app-base AS web
 EXPOSE 8000
-CMD ["gunicorn", "config.wsgi:application", "--bind", "0.0.0.0:8000", "--workers", "4", "--threads", "2", "--timeout", "60", "--graceful-timeout", "30", "--access-logfile", "-", "--access-logformat", "%(h)s %(m)s %(s)s %(L)s", "--error-logfile", "-"]
+CMD ["gunicorn", "config.wsgi:application", "--bind", "0.0.0.0:8000", "--forwarded-allow-ips", "", "--workers", "4", "--threads", "2", "--timeout", "60", "--graceful-timeout", "30", "--access-logfile", "-", "--access-logformat", "%(h)s %(m)s %(s)s %(L)s", "--error-logfile", "-"]
 
 FROM app-base AS scanner
 ENV SCANCODE_CACHE=/home/app/.cache/scancode/runtime \
@@ -91,11 +90,3 @@ WORKDIR /app
 USER postgres
 ENTRYPOINT ["/app/scripts/entrypoint.sh"]
 CMD ["/app/deploy/backup/maintenance.sh"]
-
-FROM ${NGINX_IMAGE} AS static
-COPY --from=app-base /app/staticfiles /usr/share/nginx/html/static
-COPY deploy/static/nginx.conf /etc/nginx/nginx.conf
-EXPOSE 8080
-USER nginx
-ENTRYPOINT ["nginx"]
-CMD ["-g", "daemon off;"]

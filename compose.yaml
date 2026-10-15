@@ -10,7 +10,7 @@ x-app-environment: &app-environment
   CSRF_TRUSTED_ORIGINS: ${CSRF_TRUSTED_ORIGINS:-}
   SITE_BASE_URL: ${SITE_BASE_URL:-http://localhost:8000}
   SOURCE_REPOSITORY_URL: ${SOURCE_REPOSITORY_URL:-}
-  TRUST_EDGE_CLIENT_IP: ${TRUST_EDGE_CLIENT_IP:-1}
+  TRUST_PROXY_HEADERS: ${TRUST_PROXY_HEADERS:-0}
   DJANGO_SECRET_KEY_FILE: /run/secrets/django_secret
   APP_ENCRYPTION_KEY_FILE: /run/secrets/app_encryption_key
   BOOTSTRAP_SECRET_FILE: /run/secrets/bootstrap_secret
@@ -124,10 +124,7 @@ services:
 
   web:
     <<: *app
-    networks:
-      backend: {}
-      frontend: {aliases: ['${SITE_ENVIRONMENT:-staging}-web']}
-    expose: ['8000']
+    ports: ['127.0.0.1:${APP_PORT:-8000}:8000']
     healthcheck:
       test: [CMD, /app/scripts/entrypoint.sh, python, /app/deploy/healthcheck.py]
       interval: 30s
@@ -136,22 +133,6 @@ services:
       start_period: 30s
     mem_limit: 2g
     cpus: '2'
-
-  static:
-    image: ${STATIC_IMAGE:-namelist-static:local}
-    build: {context: ., target: static}
-    platform: linux/amd64
-    restart: unless-stopped
-    read_only: true
-    tmpfs: ['/tmp:size=64m,mode=1777']
-    cap_drop: [ALL]
-    security_opt: [no-new-privileges:true]
-    networks:
-      frontend: {aliases: ['${SITE_ENVIRONMENT:-staging}-static']}
-    healthcheck: {test: [CMD, wget, -q, -O, /dev/null, 'http://127.0.0.1:8080/healthz'], interval: 30s, timeout: 5s, retries: 5}
-    mem_limit: 128m
-    cpus: '0.5'
-    logging: *logging
 
   worker:
     <<: *app
@@ -198,7 +179,6 @@ services:
 
 networks:
   backend: {internal: true}
-  frontend: {}
   egress: {}
   backup_egress: {}
 

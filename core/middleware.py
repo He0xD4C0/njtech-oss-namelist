@@ -1,6 +1,24 @@
+from ipaddress import ip_address
+
 from allauth.account.models import EmailAddress
+from django.conf import settings
+from django.http import HttpResponseBadRequest
 from django.shortcuts import redirect
 from django.utils import translation
+
+
+class ProxyHeadersMiddleware:
+    def __init__(self, get_response):
+        self.get_response = get_response
+
+    def __call__(self, request):
+        if settings.TRUST_PROXY_HEADERS:
+            value = request.META.get("HTTP_X_REAL_IP", request.META.get("REMOTE_ADDR", ""))
+            try:
+                request.META["HTTP_X_REAL_IP"] = str(ip_address(value))
+            except ValueError:
+                return HttpResponseBadRequest("Expected a single client IP address")
+        return self.get_response(request)
 
 
 class AccountReadinessMiddleware:

@@ -1,97 +1,35 @@
-# 首版本地实现与验收状态（2026-10-15）
+# 应用自带静态资源：本地实现与验证状态（2026-10-15）
 
-首版代码及可独立执行的本地验证已完成。**未初始化 Git、commit、push、GHCR 发布或远端部署，生产尚未上线。** 以下最终结果替代文末折叠的中间记录。
+仓库只交付应用及其数据/任务/备份服务，不包含反向代理或公网入口配置。CI-only 边界不变：只由 `dev-*` 标签触发完整检查、四镜像构建及交付；`release-*`、分支推送和 PR 不触发工作流。外部 CD、真实站点验收和生产放行均不由本仓库实现。
 
-## 最终验证
+本轮改动仍为本地未提交状态，没有 commit、push、打标签、发布 GHCR 或修改 GitHub 设置。已有 Git 历史及此前远端记录不受影响。
+
+## 当前交付
+
+- `Dev CI` 只有 Checks、images、bundle 三阶段；移除生产工作流、服务器连接脚本和人工审批/验收凭证机制。
+- 镜像使用 `ci-<run-id>-<attempt>` 标签；`ci-bundle` 保留 90 天，清单严格要求 `web`、`scanner`、`maintenance`、`postgres` 四个摘要，不兼容旧五镜像清单。包内不再交付代理文件。
+- WhiteNoise 6.12.0 已锁定，使用 `CompressedStaticFilesStorage`，构建期收集并压缩静态资源，不改变原 URL 或引入指纹名。运行期由只读 Web 镜像提供，头像 S3 逻辑不变。
+- 保留唯一完整应用栈 `compose.yaml`、本地开发覆盖、备份恢复以及只读安全校验。Web 固定监听容器 8000，宿主仅发布一个回环 HTTP 端口；示例预发布 18000、生产 28000、本地 18000。数据库及 Redis 不发布端口。Mailpit 仅用于本地验证。
+- `TRUST_PROXY_HEADERS` 默认关闭，开启后只信任转发协议及单一有效客户端 IP，不信任 XFF 链。Gunicorn 显式禁用自己的转发头自动识别，防止绕过应用开关；访问日志仍不含 URL、query 或 Referer。外部入口的配置及安全限制由操作者负责。
+- 保留运维测试的环境隔离修复：Compose 插值不继承宿主业务配置或 `COMPOSE_*` 控制变量，仍保留 Docker 工具环境，且不修改父进程。
+- 本轮没有改动业务模型或新增数据库迁移。手动运行说明见 [CI 交付与手动运行](release-acceptance.md)。
+
+## 本轮实际验证
 
 | 验证 | 实际结果及边界 |
 |---|---|
-| PostgreSQL 17 服务端 | **143 passed**。含真实行锁并发、配额、转移/旧审核竞争、Broker 断连补投、无效许可证、版本、公告、榜单及头像清理回归。平台传输使用测试替身。 |
-| Playwright | **6 passed**。桌面/手机、筛选分页、全页公告、后台 Markdown 编辑器、注册/站内邮箱确认/密码登录/退出与解绑；真实本地 HTTP/CSRF，外部服务使用测试替身。 |
-| 真实 ScanCode/收录链 | **40 passed，122.25 秒**。Linux amd64、UID 10001、只读根文件系统、全新缓存；真实多进程冷缓存及线程复用，条款/符号差异、版权变化、冲突、损坏、三个模拟平台的提交至公开链。 |
-| 运维边界 | **25 passed**。加密保留、WAL、目录/符号链接、隔离 Secrets/网络、摘要及验收凭证、脱敏日志。 |
-| 构建/静态检查 | 五个运行镜像及 scanner-test 成功构建；Ruff、迁移一致性、uv 锁、npm ci/build、三种 Compose 校验通过。Actions 经 actionlint 1.7.7 校验，不等于远端 CI 通过。 |
-| 实际 Compose | 最新镜像完成迁移，Gunicorn 首页及静态 HTTP 200，运行时 SMTP 向 Mailpit 实际投递，访问日志没有模拟凭据标记。 |
-| 加密备份/离线恢复 | pgBackRest 2.59.3 真实全量、差异及 WAL 检查通过；停止原 Web、PG、Redis 后独立恢复，返回 `status=ok, migrations=65, encrypted_settings=1, kept=false`。配置解密、隔离 PG 一致性与页校验通过，临时卷/网络已清理。**本地 posix 仓库，不是异地 S3 验收。** |
-| 官方 NginxUI | 已实际检查 loopback 管理 HTTP 200、未知主机 HTTP 关闭/TLS 拒绝，默认公开管理反代未加载。不是正式域名证书验收。 |
+| 运维与 CI 交付 | `DJANGO_DEBUG=1`、`0` 下分别 **34 项通过**。包括代理资源缺席、四摘要/旧格式拒绝、构建身份、固定打包白名单、手动包 Compose 加载、回环 HTTP 端口、数据及 Worker 端口禁用、DEBUG 和跨环境配置拒绝。 |
+| PostgreSQL 17 应用测试 | **154 passed**，两项可选 ScanCode 模块跳过，6 项浏览器另跑；明确设置 `DATABASE_SQLITE=0`，真实行锁测试未跳过。含 11 项请求头及 Gunicorn 回归；平台传输使用测试替身。本地 collectstatic 后重跑，无静态目录缺失警告。 |
+| Playwright | **6 passed**，真实本地 HTTP/CSRF 与桌面/手机浏览器；外部服务使用测试替身。有一条既有测试连接导致的测试库删除警告，退出码为 0；未放宽测试或改动业务代码，隔离 PostgreSQL 容器在验证后清理。桌面与手机截图已查看，布局及样式正常。 |
+| 真实 Linux ScanCode | **40 passed，最终重建后冷缓存重跑 111.75 秒**。Linux amd64、Python 3.12、非 root、只读根文件系统及独立冷缓存；真实多进程/线程索引和模拟平台收录链。不是实时 OAuth 验收。 |
+| 生产模式静态与浏览器 | 真实 Gunicorn、`DEBUG=0`、只读容器，直接访问 Web 的 18000 端口。首页、CSS、JS、字体、默认头像、后台资源均通过 MIME 检查；gzip、HEAD、ETag/Last-Modified 304、缺失文件/源码及上传目录 404、默认缓存通过。桌面/手机、头像、后台编辑器和实际服务端 Markdown 预览可用，浏览器没有捕获到失败请求或页面错误。 |
+| 容器与备份恢复 | 四个运行镜像成功构建；SMTP 向 Mailpit 投递、访问日志脱敏通过。pgBackRest 加密全量/差异与 WAL 检查完成，停止原 Web/PG/Redis 后隔离恢复返回 `status=ok, migrations=65, encrypted_settings=1, kept=false`。临时容器、恢复卷和网络已清理。 |
+| 静态检查 | Ruff、Django 系统检查、迁移一致性、uv 锁、npm ci/build、应用及本地覆盖 Compose 配置、差异检查通过。actionlint 1.7.7 检查两个工作流通过；这不是远端 CI 运行结果。 |
 
-macOS Web 测试跳过的两个可选扫描模块不计入扫描证明；扫描证明来自上面的真实 Linux 镜像。
+CI 交付测试使用明确标记的模拟 GHCR 摘要，不代表已发布镜像。扫描证明来自真实 ScanCode 镜像，不能把可选模块跳过称为通过。容器备份测试使用隔离本地 posix 仓库，不替代真实异地 S3。生产模式浏览器使用隔离库中的测试会话，不证明真实登录、邮箱或 OAuth 接入。最终镜像验证后仅更新了验收说明及测试格式，不把本地 Docker 标识冒充 GHCR 发布摘要。
 
-## 交付范围
+## 外部边界
 
-- Django/Tabler/Unfold、邮箱与三平台 OAuth、独立邮箱/密码、凭据加密、资料/配额/注销、可选头像 S3。
-- 仓库身份与收录关系分离、纯机审、动态文本黑白名单、版本防旧任务覆盖、历史与重新认领；archived 不失格。
-- Git/Webhook/周期/手动同步、Git 多语言政策正文、数据库即时公告与确认、首页/目录/个人页/上海时区月榜及封榜。
-- 初始化关闭、服务器 CLI 修复、独立双环境 Compose、GHCR 工作流、受限 NginxUI、加密备份及隔离恢复入口。
-- `AuditDispatch` 与业务同事务持久化，每五分钟补投；`PendingAvatarDeletion` 每小时恢复，注销/上传竞态及 Broker 故障不会丢掉待清理对象。
+本轮未触发远端 CI 或 GHCR 发布；新的标签触发和发布权限仍需后续获授权的真实 dev 标签验证。真实三平台 OAuth、公网 SMTP/Turnstile、Webhook、AlmaLinux 服务器、正式 DNS/TLS 及异地 S3 恢复也不能由本地测试替代。
 
-验收中修复了共享 ScanCode 缓存删除竞态、检测器升级/缓存缺失重编、无效输入沿用旧公开结论、转移锁顺序、重复任务、队列投递丢失、GitLab 标准载荷、后台弹窗、头像竞态、只读 Nginx 和恢复参数。
-
-`Another Author` 占位通知无法被版权解析器完整识别，负向测试保持待处理；正向收录链使用完整解析的 `Bob Smith`，没有放宽条款检查以换取通过。
-
-## 已测试的本地镜像 ID
-
-这些是本机 Docker 标识，**不是已发布 GHCR 摘要或生产放行记录**。后续 CI 从提交构建的新镜像仍须预发布验收。
-
-| 标签 | ID |
-|---|---|
-| `njtech-ops-web:local` | `sha256:9129bea52d4e03d1b172b0704e3233bd4ea9a2f9f5e09d7f72f5aa721f795e0b` |
-| `njtech-ops-scanner:local` | `sha256:233068b25e8e42d753d92be367bbc2ae4afdd39b91b622a44592937255312946` |
-| `njtech-ops-postgres:local` | `sha256:cf3a8034f52689bee1583ddc633cccaad909ea230f18d68cfc4eac6a3b44fd78` |
-| `njtech-ops-maintenance:local` | `sha256:420f3ea661176e3b6f2563471bfcb98a2db4bef3843f530060a5e1159c50e1dc` |
-| `njtech-ops-static:local` | `sha256:51713c75adc17846c2d8c6d7a216988789643d69b9ad67364ced3fa06dd3fd25` |
-
-扫描复验：
-
-```sh
-docker build --platform linux/amd64 --target scanner-test -t njtech-ops-scanner-test:local .
-docker run --rm --platform linux/amd64 --read-only \
-  --tmpfs /tmp:rw,size=2g,mode=1777 \
-  --tmpfs /home/app/.cache/scancode:rw,uid=10001,gid=10001,size=2g \
-  --tmpfs /app/var/work:rw,uid=10001,gid=10001,size=256m \
-  -e DJANGO_SETTINGS_MODULE=config.test_settings njtech-ops-scanner-test:local
-```
-
-上述五个本地标签就绪后，`.venv/bin/python deploy/tests/smoke_stack.py` 可复验 Compose、SMTP、日志及离线恢复。脚本只操作自己创建的 `njtech-ops-smoke` 项目，拒绝覆盖已有同名容器，并清理测试卷；不能用于生产恢复。
-
-## 尚未完成的外部验收
-
-真实三平台 OAuth/归属/令牌刷新、公网 SMTP/Turnstile、Webhook 投递、AlmaLinux 服务器、正式 DNS/TLS、远端 CI/GHCR、异地 S3 恢复尚未验收。需要主站 GitHub 仓库、两环境域名与获授权的服务器接入、每环境 OAuth/SMTP/Turnstile/Git/Webhook 配置、独立备份 S3 及站外恢复密钥。头像 S3 可稍后配置。
-
-按 [上线验收清单](release-acceptance.md) 完成预发布真实验收与隔离恢复后，才可明确授权提升同一批镜像摘要到生产。当前交付用于本地人工审阅，不代表生产放行。
-
-<details>
-<summary>历史中间验证记录（已被以上最终结果替代，不是当前阻塞）</summary>
-
-## 运维中间记录
-
-## 已实现并已执行的本地验证
-
-- 主应用负责人提供的冻结源码验收记录：真实PostgreSQL上141项通过、2项可选扫描模块跳过，6项浏览器测试通过。运维侧独立执行的检查与容器结果如下；可选扫描跳过不作为检测器验证。
-- Dockerfile包含web/scanner/postgres/maintenance/static目标；前端复用根npm锁文件，无重复deploy/frontend依赖树。
-- 生产/预发布Compose、开发覆盖配置、独立Mailpit、官方NginxUI受限入口配置均已创建；三种 `docker compose config --quiet` 校验成功。
-- 25项 `deploy/tests` 运维测试通过：加密备份配置、WAL/保留策略、目录/符号链接清理边界、摘要及验收凭证校验、非公网数据库、Secrets分发、恢复数据只读挂载、脱敏访问日志和tmpfs YAML拆分回归等。根目录Ruff检查、运维Python格式检查通过。
-- shell语法与Python编译检查通过。
-- 实际amd64 Postgres+pgBackRest镜像构建成功，运行包 pgBackRest 2.59.3。初次apt下载遇到临时EOF，启用标准Acquire重试后成功。
-- 实际Web构建曾在collectstatic暴露allauth缺少requests；主工程已修复socialaccount extra并更新锁文件，后续Web/扫描/维护/静态镜像均已成功构建。应用有继续修正，最终快照待重建补记。
-- 官方NginxUI镜像已实际启动：loopback管理HTTP200；未知主机HTTP关闭、TLS拒绝；运行配置不加载默认9000管理反代。测试容器已删除。
-- 三份GitHub Actions文件经actionlint 1.7.7验证通过；本地只检查工作流，没有运行GitHub CI/发布。
-- 隔离Compose已实际完成迁移、Gunicorn首页HTTP200、独立静态HTTP200与运行时SMTP向Mailpit真实投递。期间修复只读Nginx临时目录、开发Mailpit网络和PG临时初始化服务健康探针问题；每次失败项目的临时卷/网络均清理。
-- 本地客户端加密pgBackRest真实全量、差异备份及WAL检查通过；停止原Web、PG及Redis后，以独立维护入口恢复并验证63条迁移、1项加密配置解密、隔离PG一致性和页校验和。返回 `status=ok, kept=false`。这是开发posix备份仓库，不是异地S3验收；最新迁移与最终快照仍需再验。
-- 恢复实测修正了同步归档下不合法的spool-path、标准archive-push命令与隔离PG参数；不删除backup_label、不关闭archive-check或页校验和来绕过验证。测试清理显式启用ops profile，防止遗留恢复临时卷。
-
-## 扫描运行时集成：中间快照未通过
-
-中间快照真实 `scanner-test`（Linux amd64 / 非root / ScanCode32.5）执行 `tests/test_licensecheck.py` 和 `tests/test_ingestion.py` 共39项：36通过、3失败。原生缓存重用及真实多进程冷缓存测试已通过；三个本地平台收录链在 `tests/test_ingestion.py:91` 期望published、实际needs_review。此结果不是全部通过，最终构建等待引擎负责人修复快照后重跑。
-
-冻结源码只读挂载后以 `-x` 复现首个收录链失败（50秒）。真实版权解析器对 `2026 Another Author` 仅解析年份，整行因此保留；`Alice Smith` / `Jane Wilson` 则完整解析。该fixture不能证明完整版权通知的作者容差；应使用无歧义姓名验证该链条，不应为不完整解析放宽许可证条款检查。
-
-镜像配置可写的 `SCANCODE_CACHE`、`SCANCODE_LICENSE_INDEX_CACHE`、`SCANCODE_PACKAGE_INDEX_CACHE`，不用root写入只读site-packages。动态授权索引独立，不从外部加载pickle；数据库恢复后由策略同步验证/重建缓存。这些本地模拟平台收录链不是实时OAuth证明。
-
-## 仍待实际证明
-
-当前文件不是上线完成凭证。最终源快照仍等待原生引擎修复及重跑，最终五镜像ID和最新数据库迁移恢复结果完成后补记。运行时契约已同步审核AuditDispatch持久发件箱、每五分钟恢复、两小时扫描上限、头像PendingAvatarDeletion每小时恢复和日历月演练。
-
-未执行GitHub远端CI、GHCR发布、SSH部署、真实域名/TLS、真实SMTP/Turnstile、三个OAuth平台、真实Webhook或异地S3恢复验收。没有任何commit/push/远端部署授权被推断或执行。开发Mailpit或本地加密仓库只验证程序链条，不替代这些外部门槛。
-
-</details>
+CI 成功只说明检查与产物交付成功，不说明预发布/生产已部署或真实业务验收通过。上线及回退由操作者或外部系统独立负责，不自动覆盖任何数据库。
