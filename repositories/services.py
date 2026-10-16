@@ -4,6 +4,7 @@ from django.db import transaction
 from django.db.models import F
 from django.utils import timezone
 
+from core.i18n import text
 from core.models import AuditEvent, User
 
 from .models import Repository, Submission
@@ -34,16 +35,23 @@ def update_repository(repository, data):
 
 
 @transaction.atomic
-def add_submission(user, platform, stable_id):
+def add_submission(user, platform="", stable_id="", *, repository_url=""):
     freeze_completed_months()
-    from providers.api import validate_repository
+    from providers.api import get_client, parse_repository_url, validate_repository
     from providers.models import OAuthBinding
 
     user = User.objects.select_for_update().get(pk=user.pk)
     if user.submissions.exclude(status="removed").count() >= user.quota:
-        raise ValueError("已达到仓库配额 / Repository quota reached")
+        raise ValueError(text(
+            "已达到可提交的仓库数量上限。请先在下方移除不再展示的仓库，再提交新仓库。",
+            "You have reached your repository limit. Remove an entry below before submitting another repository.",
+        ))
+    if repository_url:
+        platform, path = parse_repository_url(repository_url)
     binding = OAuthBinding.objects.get(user=user, platform=platform)
-    data = validate_repository(binding, str(stable_id))
+    data = (get_client(platform, binding).repository_by_path(path) if repository_url
+            else validate_repository(binding, str(stable_id)))
+    stable_id = data.platform_id
     metadata = data.as_metadata()
     defaults = {key: value for key, value in metadata.items() if key not in {"platform", "platform_id"}}
     repository, _ = Repository.objects.get_or_create(
@@ -54,7 +62,10 @@ def add_submission(user, platform, stable_id):
     list(Submission.objects.select_for_update().filter(repository=repository).order_by("pk"))
     repository = Repository.objects.select_for_update().get(pk=repository.pk)
     if Submission.objects.filter(user=user, repository=repository).exclude(status="removed").exists():
-        raise ValueError("已收录，请使用重新机审 / Already retained; use recheck")
+        raise ValueError(text(
+            "这个仓库已经提交过了。请在下方查看收录状态；修改仓库后可点击“重新检查”。",
+            "This repository has already been submitted. Check its status below, or choose Recheck after updating it.",
+        ))
     update_repository(repository, data)
     Submission.objects.filter(repository=repository).exclude(user=user).exclude(
         status__in=["removed", "historical"]

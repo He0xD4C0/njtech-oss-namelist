@@ -1,5 +1,6 @@
-{% extends 'admin/base_site.html' %}{% load static ui %}
+{% extends 'admin/base.html' %}{% load static ui %}
 {% block extrahead %}{{ block.super }}
+<link rel="icon" type="image/png" data-brand-favicon{% if brand_logo_url %} href="{{ brand_logo_url }}"{% endif %}>
 <script src="{% static 'js/theme.js' %}"></script>
 <script src="{% static 'js/admin-theme.js' %}"></script>
 <link rel="stylesheet" href="{% static 'css/admin.css' %}">

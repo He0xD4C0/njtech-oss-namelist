@@ -5,6 +5,6 @@
 </select>
 <form action="{% url 'set_language' %}" method="post" class="d-flex gap-1">{% csrf_token %}<input type="hidden" name="next" value="{{ request.get_full_path }}">
   <label class="visually-hidden" for="ui-language">{% ui '界面语言' 'Interface language' %}</label>
-  <select name="language" id="ui-language" class="form-select form-select-sm w-auto"><option value="zh-hans" {% if request.LANGUAGE_CODE != 'en' %}selected{% endif %}>中文</option><option value="en" {% if request.LANGUAGE_CODE == 'en' %}selected{% endif %}>EN</option></select>
-  <button class="btn btn-sm" type="submit" aria-label="{% ui '切换语言' 'Apply language' %}">{% ui '切换' 'Apply' %}</button>
+  <select name="language" id="ui-language" class="form-select form-select-sm w-auto" onchange="this.form.requestSubmit()"><option value="zh-hans" {% if request.LANGUAGE_CODE != 'en' %}selected{% endif %}>中文</option><option value="en" {% if request.LANGUAGE_CODE == 'en' %}selected{% endif %}>EN</option></select>
+  <noscript><button class="btn btn-sm btn-outline-secondary" type="submit" aria-label="{% ui '切换语言' 'Apply language' %}">{% ui '切换' 'Apply' %}</button></noscript>
 </form>

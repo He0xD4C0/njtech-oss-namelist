@@ -10,3 +10,15 @@
 .EasyMDEContainer .editor-preview pre, .EasyMDEContainer .editor-preview-side pre { background: var(--editor-muted); }
 .EasyMDEContainer .editor-preview img, .EasyMDEContainer .editor-preview-side img { max-width: 100%; }
 .EasyMDEContainer .editor-preview, .EasyMDEContainer .editor-preview-side { overflow-wrap: anywhere; }
+
+/* Local actions use the same visible resting state on every Unfold page. */
+.admin-action { display: inline-flex; align-items: center; justify-content: center; gap: .5rem; min-height: 44px; padding: .5rem .75rem; border: 1px solid #577da8; border-radius: .375rem; background: #eaf2ff; color: #174777; font-weight: 600; cursor: pointer; }
+.admin-action:hover { background: #d7e7ff; }
+.dark .admin-action { border-color: #79a9dd; background: #223c59; color: #d2e7ff; }
+.dark .admin-action:hover { background: #2d4d70; }
+.admin-action:disabled { opacity: .5; cursor: not-allowed; }
+.admin-action:focus-visible, .EasyMDEContainer .editor-toolbar button:focus-visible, [data-admin-navigation-toggle]:focus-visible { outline: 3px solid #60a5fa; outline-offset: 3px; }
+.EasyMDEContainer .editor-toolbar button { background: var(--editor-muted); border: 1px solid #7b8a9c; margin: 2px; }
+.dark .EasyMDEContainer .editor-toolbar button { border-color: #7d93ad; }
+[data-admin-navigation-toggle] { display: inline-flex; padding: .5rem; border: 1px solid #7b8a9c; border-radius: .375rem; background: #edf2f8; cursor: pointer; }
+.dark [data-admin-navigation-toggle] { background: #293c54; border-color: #7d93ad; }

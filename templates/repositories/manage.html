@@ -1,6 +1,69 @@
-{% extends 'account/base_manage.html' %}{% load ui %}{% block account_content %}
-<div class="d-flex flex-wrap justify-content-between gap-2 align-items-center mb-3"><h1 class="page-title">{% ui '我的仓库' 'My repositories' %}</h1><span class="badge bg-blue-lt">{% ui '配额' 'Quota' %}: {{ submissions|length }} / {{ user.quota }}</span></div>
-<nav class="nav nav-pills mb-4" aria-label="{% ui '仓库平台' 'Repository platforms' %}">{% for binding in bindings %}<a class="nav-link{% if platform == binding.platform %} active{% endif %}" href="?platform={{ binding.platform }}">{{ binding.get_platform_display }}</a>{% empty %}<a class="btn btn-primary" href="{% url 'providers:index' %}">{% ui '请先绑定仓库平台' 'Connect a repository provider first' %}</a>{% endfor %}</nav>
-{% if platform %}<h2 class="h3">{% ui '直接拥有的公开仓库' 'Directly owned public repositories' %}</h2>{% for repo in candidates %}<form method="post" action="{% url 'repositories:add' %}" class="card card-body mb-3">{% csrf_token %}<input type="hidden" name="platform" value="{{ platform }}"><input type="hidden" name="repository_id" value="{{ repo.platform_id }}"><strong class="text-break">{{ repo.full_name }}</strong><p class="text-secondary text-break">{{ repo.description }}</p><div><button class="btn btn-primary" type="submit">{% ui '提交机审' 'Submit for automated review' %}</button></div></form>{% empty %}<p class="empty-state">{% ui '暂无可选仓库' 'No available repositories' %}</p>{% endfor %}{% endif %}
-<h2 class="h3 mt-4">{% ui '已保留的收录记录' 'Retained submissions' %}</h2>{% for submission in submissions %}<section class="card card-body mb-3"><h3 class="h4 text-break">{{ submission.repository.full_name }}</h3><p class="text-secondary text-break">{{ submission.get_status_display }} · {{ submission.reason }}</p><div class="d-flex flex-wrap gap-2"><form method="post" action="{% url 'repositories:recheck' submission.pk %}">{% csrf_token %}<button class="btn" type="submit">{% ui '重新机审' 'Recheck' %}</button></form><form method="post" action="{% url 'repositories:remove' submission.pk %}">{% csrf_token %}<button class="btn btn-outline-danger" type="submit">{% ui '移除' 'Remove' %}</button></form></div></section>{% empty %}<p class="empty-state">{% ui '尚无仓库' 'No submissions yet' %}</p>{% endfor %}
+{% extends 'account/base_manage.html' %}
+{% load ui %}
+{% block title %}{% ui '我的仓库' 'My repositories' %} · {{ site_title }}{% endblock %}
+{% block account_content %}
+<div class="d-flex flex-wrap justify-content-between gap-2 align-items-center mb-3">
+  <h1 class="page-title">{% ui '我的仓库' 'My repositories' %}</h1>
+  <span class="text-secondary">{% ui '已提交' 'Submitted' %} {{ submissions|length }} / {{ user.quota }}</span>
+</div>
+<p class="text-secondary">{% ui '提交你个人账号下的公开仓库，通过归属和许可证检查后，就会出现在目录中。' 'Submit a public repository you own. It will appear in the directory after ownership and license checks.' %} <a href="/policies/inclusion/">{% ui '查看收录规则' 'View inclusion rules' %}</a></p>
+{% if quota_reached %}<p class="alert alert-info" role="status">{% ui '已达到可提交的仓库数量上限。你可以在下方移除不再展示的仓库，再提交新仓库。' 'You have reached your repository limit. Remove an entry below before submitting another repository.' %}</p>{% endif %}
+
+<section class="card mb-3" id="submit-repository" aria-labelledby="submit-title">
+  <div class="card-body">
+    <h2 class="card-title" id="submit-title">{% ui '输入仓库地址' 'Submit a repository URL' %}</h2>
+    <form method="post" action="{% url 'repositories:add' %}">
+      {% csrf_token %}{% include 'ui/form.html' %}
+      {% if not bindings %}<p class="text-secondary">{% ui '提交前需要绑定对应的平台账号，用来确认仓库属于你。' 'Connect the matching platform account before submitting so we can verify that you own the repository.' %}</p>{% endif %}
+      <div class="d-flex flex-wrap gap-3 align-items-center">
+        <button class="btn btn-primary" type="submit" {% if quota_reached %}disabled{% endif %}>{% ui '提交仓库' 'Submit repository' %}</button>
+        <a href="{% url 'providers:index' %}">{% ui '绑定平台账号' 'Connect a platform account' %}</a>
+      </div>
+    </form>
+  </div>
+</section>
+
+{% if bindings %}
+<section class="card mb-4" id="choose-repository" aria-labelledby="choose-title">
+  <div class="card-body">
+    <h2 class="card-title" id="choose-title">{% ui '或从已绑定的账号中选择仓库' 'Or choose from a connected account' %}</h2>
+    <nav class="d-flex flex-wrap gap-2 mb-3" aria-label="{% ui '仓库平台' 'Repository platforms' %}">
+      {% for binding in bindings %}<a class="btn repository-platform-button {% if platform == binding.platform %}btn-primary{% else %}btn-outline-primary{% endif %}" {% if platform == binding.platform %}aria-current="page"{% endif %} href="?platform={{ binding.platform }}#choose-repository">{% if platform == binding.platform %}<span aria-hidden="true">✓</span>{% endif %}{% ui '查看' 'View' %} {{ binding.get_platform_display }} {% ui '仓库' 'repositories' %}</a>{% endfor %}
+    </nav>
+    {% if candidate_error %}<p class="alert alert-warning" role="alert">{{ candidate_error }}</p><a class="btn btn-outline-secondary" href="?platform={{ platform }}#choose-repository">{% ui '重新加载' 'Try again' %}</a>
+    {% elif platform %}
+      {% for item in candidates %}
+      <form method="post" action="{% url 'repositories:add' %}" class="border rounded p-3 mb-3">
+        {% csrf_token %}<input type="hidden" name="platform" value="{{ platform }}"><input type="hidden" name="repository_id" value="{{ item.repo.platform_id }}">
+        <a class="fw-bold text-break" href="{{ item.repo.html_url }}" target="_blank" rel="noopener noreferrer">{{ item.repo.full_name }} <span class="visually-hidden">{% ui '（新窗口打开）' '(opens in a new tab)' %}</span></a>
+        {% if item.repo.description %}<p class="text-secondary text-break mt-2">{{ item.repo.description }}</p>{% endif %}
+        <div class="mt-2">{% if item.submitted %}<a class="btn btn-outline-secondary" href="#submissions">{% ui '已提交，查看状态' 'Submitted · View status' %}</a>{% else %}<button class="btn btn-outline-primary" type="submit" {% if quota_reached %}disabled{% endif %}>{% ui '提交仓库' 'Submit repository' %}</button>{% endif %}</div>
+      </form>
+      {% empty %}<p class="text-secondary mb-0">{% ui '这个账号下暂无个人拥有的公开仓库。请确认仓库已设为公开，或切换其他已绑定的账号。' 'No public personal repositories were found for this account. Check repository visibility or choose another connected account.' %}</p>{% endfor %}
+    {% else %}<p class="text-secondary mb-0">{% ui '选择一个平台，查看你可以提交的公开仓库。' 'Choose a platform to view your public repositories.' %}</p>{% endif %}
+  </div>
+</section>
+{% endif %}
+
+<section id="submissions" aria-labelledby="submissions-title">
+  <div class="d-flex flex-wrap gap-2 justify-content-between align-items-center mb-3">
+    <h2 class="h3 mb-0" id="submissions-title">{% ui '收录状态' 'Submission status' %}</h2>
+    <a class="btn btn-sm btn-outline-secondary" href="{% url 'repositories:index' %}#submissions">{% ui '刷新状态' 'Refresh status' %}</a>
+  </div>
+  {% for submission in submissions %}
+  <article class="card card-body mb-3">
+    <div class="d-flex flex-wrap gap-2 justify-content-between align-items-start">
+      <h3 class="h4 text-break"><a href="{{ submission.repository.html_url }}" target="_blank" rel="noopener noreferrer">{{ submission.repository.full_name }}<span class="visually-hidden"> {% ui '（新窗口打开）' '(opens in a new tab)' %}</span></a></h3>
+      <span class="badge {% if submission.status == 'published' %}bg-green-lt{% elif submission.status == 'queued' %}bg-blue-lt{% else %}bg-orange-lt{% endif %}">{{ submission.status_label }}</span>
+    </div>
+    <p class="text-secondary mb-2">{{ submission.status_hint }}</p>
+    {% if submission.review_pending %}<p class="text-secondary">{% ui '检查已在排队或进行中，无需重复提交。稍后点击“刷新状态”查看结果。' 'Checks are queued or running. Refresh the status later to see the result.' %}</p>{% endif %}
+    {% if submission.display_reason %}<details class="mb-3"><summary>{% ui '查看检查详情' 'View check details' %}</summary><p class="text-secondary text-break mt-2 mb-0">{{ submission.display_reason }}</p></details>{% endif %}
+    <div class="d-flex flex-wrap gap-3 align-items-start">
+      <form method="post" action="{% url 'repositories:recheck' submission.pk %}">{% csrf_token %}<button class="btn btn-outline-secondary" type="submit" {% if submission.review_pending %}disabled{% endif %}>{% if submission.review_pending %}{% ui '等待检查结果' 'Awaiting results' %}{% else %}{% ui '重新检查' 'Recheck' %}{% endif %}</button></form>
+      <details class="pt-2"><summary class="text-danger">{% ui '移除收录' 'Remove entry' %}</summary><p class="text-secondary mt-2">{% ui '这会移除本站的收录记录，平台上的原仓库不受影响。之后可以重新提交。' 'This removes the entry from this site. Your original repository is unchanged, and you can submit it again later.' %}</p><form method="post" action="{% url 'repositories:remove' submission.pk %}">{% csrf_token %}<button class="btn btn-outline-danger" type="submit">{% ui '确认移除' 'Confirm removal' %}</button></form></details>
+    </div>
+  </article>
+  {% empty %}<div class="empty-state"><h3 class="h4">{% ui '还没有提交过仓库' 'No repositories submitted yet' %}</h3><p class="mb-0">{% ui '在上方粘贴仓库地址，提交你的第一个开源项目。' 'Paste a repository URL above to submit your first open-source project.' %}</p></div>{% endfor %}
+</section>
 {% endblock %}

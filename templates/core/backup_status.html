@@ -10,7 +10,7 @@
 {% if backup.managed %}
 <form method="post" {% if setup_backup %}data-setup-form{% endif %} class="my-3 flex flex-wrap gap-2 d-flex">
   {% csrf_token %}{% if setup_backup %}<input type="hidden" name="step" value="operations"><input type="hidden" name="task" value="backup">{% endif %}
-  <button type="submit" name="action" value="backup-apply" data-backup-apply class="btn btn-outline-primary border rounded-default px-3 py-2" {% if not backup.tested or backup.busy %}disabled{% endif %}>{% if backup.enabled %}{% ui '应用已测试的凭据并备份' 'Apply tested credentials and back up' %}{% else %}{% ui '启用自动备份' 'Enable automatic backups' %}{% endif %}</button>
-  <button type="submit" name="action" value="backup-backup" data-backup-now class="btn btn-outline-primary border rounded-default px-3 py-2" {% if not backup.enabled or backup.busy %}disabled{% endif %}>{% ui '立即执行全量备份' 'Back up now (full)' %}</button>
+  <button type="submit" name="action" value="backup-apply" data-backup-apply class="btn btn-outline-primary admin-action border rounded-default px-3 py-2" {% if not backup.tested or backup.busy %}disabled{% endif %}>{% if backup.enabled %}{% ui '应用已测试的凭据并备份' 'Apply tested credentials and back up' %}{% else %}{% ui '启用自动备份' 'Enable automatic backups' %}{% endif %}</button>
+  <button type="submit" name="action" value="backup-backup" data-backup-now class="btn btn-outline-primary admin-action border rounded-default px-3 py-2" {% if not backup.enabled or backup.busy %}disabled{% endif %}>{% ui '立即执行全量备份' 'Back up now (full)' %}</button>
 </form>
 {% else %}<p>{% ui '当前使用服务器配置管理模式。请在部署配置中启用应用管理模式后使用此表单。' 'Server-managed configuration is active. Enable application-managed backups in the deployment configuration to use this form.' %}</p>{% endif %}

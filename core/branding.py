@@ -27,8 +27,8 @@ class LogoForm(forms.Form):
         super().__init__(*args, **kwargs)
         self.fields["logo"] = forms.FileField(
             label=text("选择新的 Logo", "Choose a new logo"),
-            help_text=text("支持 PNG、JPEG、WebP，最大 5 MiB；建议使用透明背景。应用后统一显示于站点、后台和邮件，留空不会删除当前 Logo。",
-                           "PNG, JPEG or WebP, up to 5 MiB. A transparent background is recommended. Applies to the site, admin and emails; leaving this blank retains the current logo."),
+            help_text=text("支持 PNG、JPEG、WebP，最大 5 MiB；建议使用透明背景。应用后统一显示于浏览器标签页、站点、后台和邮件，留空不会删除当前 Logo。",
+                           "PNG, JPEG or WebP, up to 5 MiB. A transparent background is recommended. Applies to browser tabs, the site, admin and emails; leaving this blank retains the current logo."),
             widget=forms.FileInput(attrs={"accept": "image/png,image/jpeg,image/webp"}),
         )
         if admin_style:

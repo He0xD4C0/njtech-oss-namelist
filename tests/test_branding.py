@@ -85,8 +85,10 @@ def test_admin_upload_requires_superuser_and_updates_unfold(client, initialized_
     client.force_login(user)
     assert client.post('/manage/settings/', {'action': 'save', 'group': 'branding', 'logo': upload()}).status_code == 302
     current = logo_url()
-    assert current in client.get('/admin/').content.decode()
-    assert current in client.get('/manage/settings/').content.decode()
+    for path in ('/', '/submit/', '/admin/', '/admin/core/user/', '/manage/settings/'):
+        assert f'<link rel="icon" type="image/png" data-brand-favicon href="{current}">' in client.get(path).content.decode()
+    client.logout()
+    assert f'data-brand-favicon href="{current}"' in client.get('/accounts/login/').content.decode()
     assert client.get(current)['Cache-Control'] == 'public, max-age=86400, immutable'
     save_logo(image_bytes((255, 20, 10, 255)))
     assert logo_url() != current

@@ -12,6 +12,7 @@ from django.utils import timezone
 from django.utils.dateparse import parse_datetime
 
 from core.crypto import decrypt, encrypt
+from core.i18n import text
 from core.runtime import get_setting
 
 from .models import OAuthBinding
@@ -23,6 +24,34 @@ class ProviderUnavailable(Exception):
 
 class RepositoryIneligible(Exception):
     """Definitively no longer a directly owned public Git repository."""
+
+
+def parse_repository_url(value):
+    """Accept a repository homepage/HTTPS clone URL, never an arbitrary fetch target."""
+    value = value.strip()
+    if "://" not in value:
+        value = "https://" + value
+    try:
+        parts = urlsplit(value)
+        hosts = {"github.com": "github", "gitee.com": "gitee", "gitlab.com": "gitlab"}
+        if parts.scheme != "https" or parts.netloc.lower() not in hosts:
+            raise ValueError
+        path = parts.path.removeprefix("/").removesuffix("/").removesuffix(".git")
+        if (
+            parts.query or parts.fragment
+            or len(path.split("/")) != 2
+            or not re.fullmatch(r"[A-Za-z0-9_.~-]+/[A-Za-z0-9_.~-]+", path)
+            or any(part in {".", ".."} for part in path.split("/"))
+        ):
+            raise ValueError
+    except ValueError:
+        raise ValueError(text(
+            "请输入 GitHub、Gitee 或 GitLab.com 的仓库主页地址，例如 https://github.com/用户名/仓库名。"
+            "请使用 HTTPS 地址，不含文件路径、查询参数或账号密码。",
+            "Enter a GitHub, Gitee or GitLab.com repository URL, such as https://github.com/username/repository. "
+            "Use HTTPS without file paths, query parameters or credentials.",
+        )) from None
+    return hosts[parts.netloc.lower()], path
 
 
 @dataclass(frozen=True)
@@ -315,6 +344,15 @@ class GitHubClient(BaseClient):
             repo, f"/repos/{quote(repo.full_name, safe='/')}/commits/{quote(repo.default_branch, safe='')}"
         )
 
+    def repository_by_path(self, path):
+        identity = self.identity()
+        repo = self._ensure_owned(
+            self._parse(self._json(f"/repos/{quote(path, safe='/')}", repository=True)), identity
+        )
+        return self._commit(
+            repo, f"/repos/{quote(repo.full_name, safe='/')}/commits/{quote(repo.default_branch, safe='')}"
+        )
+
 
 class GiteeClient(GitHubClient):
     platform, host, api_url = "gitee", "gitee.com", "https://gitee.com/api/v5"
@@ -436,6 +474,15 @@ class GitLabClient(BaseClient):
         if repo.platform_id != rid:
             raise ProviderUnavailable("仓库稳定 ID 不一致。")
         return self._commit(repo, f"/projects/{rid}/repository/commits/{quote(repo.default_branch, safe='')}")
+
+    def repository_by_path(self, path):
+        identity = self.identity()
+        repo = self._ensure_owned(
+            self._parse(self._json(f"/projects/{quote(path, safe='')}", repository=True), identity), identity
+        )
+        return self._commit(
+            repo, f"/projects/{repo.platform_id}/repository/commits/{quote(repo.default_branch, safe='')}"
+        )
 
 
 CLIENTS = {"github": GitHubClient, "gitee": GiteeClient, "gitlab": GitLabClient}

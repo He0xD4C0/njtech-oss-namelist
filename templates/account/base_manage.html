@@ -2,7 +2,7 @@
 {% block content %}
 <div class="row row-cards">
   <aside class="col-12 col-lg-3">
-    <div class="card"><div class="card-header"><h2 class="card-title">{% ui '账号工作区' 'Account workspace' %}</h2><button class="btn btn-sm ms-auto d-lg-none" type="button" data-bs-toggle="collapse" data-bs-target="#account-navigation" aria-expanded="false" aria-controls="account-navigation">{% ui '菜单' 'Menu' %}</button></div>
+    <div class="card"><div class="card-header"><h2 class="card-title">{% ui '账号工作区' 'Account workspace' %}</h2><button class="btn btn-sm btn-outline-secondary ms-auto d-lg-none" type="button" data-bs-toggle="collapse" data-bs-target="#account-navigation" aria-expanded="false" aria-controls="account-navigation">{% ui '菜单' 'Menu' %}</button></div>
     <nav id="account-navigation" class="collapse d-lg-block list-group list-group-flush" aria-label="{% ui '账号导航' 'Account navigation' %}">
       <a class="list-group-item list-group-item-action{% if request.resolver_match.view_name == 'core:profile' %} active{% endif %}" href="{% url 'core:profile' %}">{% ui '个人资料' 'Profile' %}</a>
       <a class="list-group-item list-group-item-action{% if request.resolver_match.namespace == 'providers' %} active{% endif %}" href="{% url 'providers:index' %}">{% ui '平台绑定' 'Platform connections' %}</a>
@@ -10,7 +10,7 @@
       <a class="list-group-item list-group-item-action{% if request.resolver_match.url_name == 'account_email' %} active{% endif %}" href="{% url 'account_email' %}">{% ui '邮箱管理' 'Email addresses' %}</a>
       <a class="list-group-item list-group-item-action{% if request.resolver_match.url_name == 'account_change_password' %} active{% endif %}" href="{% url 'account_change_password' %}">{% ui '修改密码' 'Change password' %}</a>
       {% if not user.is_superuser %}<a class="list-group-item list-group-item-action{% if request.resolver_match.view_name == 'core:delete_account' %} active{% endif %}" href="{% url 'core:delete_account' %}">{% ui '注销账号' 'Delete account' %}</a>{% endif %}
-      <form class="list-group-item" method="post" action="{% url 'account_logout' %}">{% csrf_token %}<button class="btn w-100" type="submit">{% ui '退出登录' 'Sign out' %}</button></form>
+      <form class="list-group-item" method="post" action="{% url 'account_logout' %}">{% csrf_token %}<button class="btn btn-outline-secondary w-100" type="submit">{% ui '退出登录' 'Sign out' %}</button></form>
     </nav></div>
   </aside>
   <div class="col-12 col-lg-9 min-width-0">{% block account_content %}{% endblock %}</div>

@@ -1,0 +1,4 @@
+{% extends 'socialaccount/login_cancelled.html' %}{% load ui %}
+{% block title %}{% ui '平台授权失败' 'Platform authorization failed' %} · {{ site_title }}{% endblock %}
+{% block failure_title %}{% ui '平台授权失败' 'Platform authorization failed' %}{% endblock %}
+{% block failure_message %}{% ui '未能完成平台授权。请返回后重新尝试；如果持续失败，请联系站点管理员。' 'Platform authorization could not be completed. Return and try again; contact the site administrator if the problem persists.' %}{% endblock %}

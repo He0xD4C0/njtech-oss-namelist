@@ -159,16 +159,16 @@ def test_anonymous_forms_language_and_keyboard_navigation(page, live_server, ext
             expect(page.locator("#site-navigation")).to_have_class(re.compile(r"\bshow\b"))
             expect(page.get_by_role("link", name="月榜", exact=True)).to_be_visible()
         page.get_by_label("界面语言", exact=True).select_option("en")
-        page.get_by_role("button", name="切换语言").click()
         expect(page.locator("html")).to_have_attribute("lang", "en")
+        expect(page.get_by_role("button", name="Apply language")).to_have_count(0)
         for path in ("/accounts/login/", "/accounts/signup/", "/accounts/password/reset/", "/policies/terms/?language=en-US"):
             page.goto(live_server.url + path)
             for mode in ("light", "dark", "auto"):
                 page.get_by_label("Color mode").select_option(mode)
                 no_overflow(page)
         page.get_by_label("Interface language", exact=True).select_option("zh-hans")
-        page.get_by_role("button", name="Apply language").click()
         expect(page.locator("html")).to_have_attribute("lang", "zh-hans")
+        expect(page).to_have_url(live_server.url + "/policies/terms/?language=en-US")
 
 
 def test_busy_failure_and_network_recovery(page, live_server, settings):

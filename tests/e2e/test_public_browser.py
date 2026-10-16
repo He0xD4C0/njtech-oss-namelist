@@ -152,9 +152,9 @@ def test_public_desktop_mobile_filters_and_source(page, live_server, public_cont
     page.screenshot(path=str(artifact_dir / "home-desktop-dark.png"), full_page=True)
     page.get_by_label("配色模式").select_option("auto")
     print(f"desktop screenshot: {artifact_dir / 'home-desktop.png'}")
-    page.get_by_role("link", name="仓库", exact=True).click()
+    page.get_by_role("link", name="目录", exact=True).click()
     expect(page.locator(".repository-card")).to_have_count(20)
-    page.get_by_label("archived", exact=True).select_option("1")
+    page.get_by_label("归档状态", exact=True).select_option("1")
     page.get_by_role("button", name="筛选", exact=True).click()
     expect(page.locator(".repository-card")).to_have_count(1)
     assert "archived=1" in page.url
@@ -347,3 +347,118 @@ def test_multiple_mailboxes_visible_in_both_languages(page, browser, live_server
     page.goto(live_server.url + '/u/mailbox-user/')
     expect(page.get_by_text('second@example.test', exact=True)).to_be_visible()
     expect(page.get_by_text('first@example.test', exact=True)).to_have_count(0)
+
+
+@pytest.mark.parametrize('width,language', [(1440, 'zh-hans'), (390, 'zh-hans'), (1440, 'en'), (390, 'en')])
+def test_repository_submission_from_home(page, live_server, session_login, artifact_dir, monkeypatch, width, language):
+    """Real page/form/CSRF and database; only remote provider and queue delivery are stubbed."""
+    from unittest.mock import Mock
+
+    from core.crypto import encrypt
+    from providers.api import ProviderUnavailable, RepoData
+    from providers.models import OAuthBinding
+    from repositories.models import AuditDispatch
+
+    user = User.objects.create_user('submit-owner', email='submit@example.test', password='Browser-test-password-421')
+    EmailAddress.objects.create(user=user, email=user.email, primary=True, verified=True)
+    session_login(user)
+    page.context.add_cookies([{'name': 'django_language', 'value': language, 'url': live_server.url}])
+    page.set_viewport_size({'width': width, 'height': 1000})
+    en = language == 'en'
+    def t(zh, english):
+        return english if en else zh
+    page.goto(live_server.url + '/')
+    page.get_by_role('link', name=t('添加我的仓库', 'Add my repository'), exact=True).click()
+    expect(page).to_have_url(live_server.url + '/submit/')
+    field = page.get_by_label(t('仓库地址', 'Repository URL'), exact=True)
+    submit = page.locator('#submit-repository').get_by_role('button', name=t('提交仓库', 'Submit repository'), exact=True)
+    expect(field).to_be_visible()
+    expect(submit).to_be_visible()
+    assert field.bounding_box()['y'] < 1000
+    url = 'https://github.com/submit-owner/example.git'
+    field.fill(url)
+    submit.click()
+    expect(page.get_by_role('alert')).to_contain_text(t('请先绑定', 'Connect your account'))
+    expect(field).to_have_value(url)
+    expect(page.get_by_role('link', name=t('绑定平台账号', 'Connect a platform account'), exact=True)).to_be_visible()
+
+    OAuthBinding.objects.create(user=user, platform='github', platform_user_id='7', username='submit-owner',
+                                encrypted_access_token=encrypt('test-token'))
+    dto = RepoData(platform='github', platform_id='12', name='example', full_name='submit-owner/example',
+                   description='一个公开的开源项目。', html_url=url.removesuffix('.git'), clone_url=url,
+                   owner_id='7', default_branch='main', fork=False, archived=False, stars=8,
+                   public=True, owner_type='user')
+    api = Mock()
+    api.repository_by_path.return_value = dto
+    api.list_owned_public.return_value = [dto]
+    monkeypatch.setattr('providers.api.get_client', lambda platform, binding: api)
+    enqueue = Mock()
+    monkeypatch.setattr('repositories.tasks.audit_submission.delay', enqueue)
+    page.goto(live_server.url + '/submit/')
+    platform_button = page.get_by_role('link', name=t('查看 GitHub 仓库', 'View GitHub repositories'), exact=True)
+    expect(platform_button).to_be_visible()
+    expect(platform_button).to_have_class(re.compile('repository-platform-button'))
+    assert not page.locator('#choose-repository').evaluate('node => node.closest("details")')
+    assert page.evaluate('document.documentElement.scrollWidth <= innerWidth')
+    for theme in ('light', 'dark'):
+        page.locator('[data-theme-select]').select_option(theme)
+        page.mouse.move(0, 0)
+        page.wait_for_function("document.getAnimations().every(a => a.playState !== 'running' || a.effect.getTiming().iterations === Infinity)")
+        assert platform_button.evaluate("""node => {
+            const style = getComputedStyle(node), card = getComputedStyle(node.closest('.card'));
+            return !node.matches(':hover') && style.backgroundColor !== card.backgroundColor
+                && parseFloat(style.borderWidth) >= 1 && style.borderColor !== card.backgroundColor
+                && node.getBoundingClientRect().height >= 44;
+        }""")
+        page.screenshot(path=str(artifact_dir / f'submit-entry-{language}-{width}-{theme}.png'), full_page=True)
+    platform_button.focus()
+    page.keyboard.press('Shift+Tab')
+    page.keyboard.press('Tab')
+    expect(platform_button).to_be_focused()
+    assert platform_button.evaluate("node => parseFloat(getComputedStyle(node).outlineWidth) >= 3")
+    platform_button.click()
+    expect(platform_button).to_have_attribute('aria-current', 'page')
+    expect(page.locator('#choose-repository').get_by_role('button', name=t('提交仓库', 'Submit repository'))).to_be_visible()
+    api.list_owned_public.assert_called_once()
+
+    # Validation keeps the URL editable, then a successful submission becomes a visible status card.
+    field.fill('https://example.org/owner/project')
+    submit.click()
+    expect(page.get_by_role('alert')).to_be_visible()
+    expect(field).to_have_value('https://example.org/owner/project')
+    api.repository_by_path.assert_not_called()
+    field.fill(url)
+    submit.click()
+    expect(page).to_have_url(live_server.url + '/submit/#submissions')
+    expect(page.get_by_role('status')).to_contain_text(t('提交成功', 'Repository submitted'))
+    expect(page.locator('#submissions article .badge')).to_have_text(t('等待检查', 'Awaiting checks'))
+    expect(page.get_by_role('button', name=t('等待检查结果', 'Awaiting results'), exact=True)).to_be_disabled()
+    claim = Submission.objects.get(user=user)
+    assert claim.repository.platform_id == '12' and AuditDispatch.objects.filter(submission=claim).exists()
+    api.repository_by_path.assert_called_once_with('submit-owner/example')
+    enqueue.assert_called_once_with(claim.pk, 1)
+    page.screenshot(path=str(artifact_dir / f'submit-success-{language}-{width}.png'), full_page=True)
+    page.get_by_role('link', name=t('查看 GitHub 仓库', 'View GitHub repositories'), exact=True).click()
+    expect(page.get_by_role('link', name=t('已提交，查看状态', 'Submitted · View status'), exact=True)).to_be_visible()
+    expect(page.locator('#choose-repository').get_by_role('button', name=t('提交仓库', 'Submit repository'))).to_have_count(0)
+
+    # Loading failure must not masquerade as an empty account.
+    api.list_owned_public.side_effect = ProviderUnavailable()
+    page.reload()
+    expect(page.get_by_role('alert')).to_contain_text(t('暂时无法加载仓库列表', 'Could not load your repositories'))
+    expect(page.get_by_role('link', name=t('重新加载', 'Try again'), exact=True)).to_be_visible()
+    api.list_owned_public.side_effect = None
+    page.get_by_role('link', name=t('刷新状态', 'Refresh status'), exact=True).click()
+    page.get_by_text(t('移除收录', 'Remove entry'), exact=True).click()
+    expect(page.get_by_text(t('这会移除本站的收录记录', 'This removes the entry from this site'), exact=False)).to_be_visible()
+    assert Submission.objects.get(pk=claim.pk).status == 'queued'
+    page.get_by_role('button', name=t('确认移除', 'Confirm removal'), exact=True).click()
+    expect(page.get_by_role('status')).to_contain_text(t('已从本站移除', 'Entry removed from this site'))
+    assert Submission.objects.get(pk=claim.pk).status == 'removed'
+    assert page.evaluate('document.documentElement.scrollWidth <= innerWidth')
+
+    # Main navigation is visible and works in both mobile and desktop layouts.
+    if width == 390:
+        page.get_by_role('button', name=t('展开主导航', 'Toggle navigation'), exact=True).click()
+    page.locator('#site-navigation').get_by_role('link', name=t('目录', 'Directory'), exact=True).click()
+    expect(page).to_have_url(live_server.url + '/repositories/')

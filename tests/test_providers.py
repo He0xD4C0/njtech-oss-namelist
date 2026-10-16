@@ -677,3 +677,165 @@ def test_browser_platform_cards_and_disconnect(user, client, live_server, tmp_pa
         expect(page.get_by_role("link", name="选择仓库", exact=True)).to_have_count(0)
         browser.close()
     assert not OAuthBinding.objects.filter(pk=binding.pk).exists()
+
+
+@pytest.mark.parametrize("url,platform,path", [
+    ("https://github.com/alice/example", "github", "alice/example"),
+    ("  github.com/alice/example.git  ", "github", "alice/example"),
+    ("https://GITHUB.COM/alice/Example/", "github", "alice/Example"),
+    ("https://gitee.com/alice/example.git/", "gitee", "alice/example"),
+    ("https://gitlab.com/alice/example", "gitlab", "alice/example"),
+])
+def test_repository_url_parser(url, platform, path):
+    from providers.api import parse_repository_url
+    assert parse_repository_url(url) == (platform, path)
+
+
+@pytest.mark.parametrize("url", [
+    "", "not a url", "http://github.com/alice/example", "git@github.com:alice/example.git",
+    "https://127.0.0.1/alice/example", "https://github.com.evil.test/alice/example",
+    "https://github.com@evil.test/alice/example", "https://user:password@github.com/alice/example",
+    "https://github.com:443/alice/example", "https://github.com/alice", "https://github.com/alice/..",
+    "https://github.com/alice/example/tree/main", "https://gitlab.com/group/subgroup/repo",
+    "https://github.com/alice/%2e%2e", "https://github.com/alice/example?access_token=secret",
+    "https://github.com/alice/example#readme", "https://[github.com/alice/example",
+    "https://github.com//alice/example", "https://github.com/alice/example//",
+])
+def test_invalid_repository_url_cannot_reach_platform(user, client, monkeypatch, url):
+    from repositories.models import AuditDispatch, Repository
+    bind(user)
+    client.force_login(user)
+    network = Mock(side_effect=AssertionError("Invalid URLs must not make network requests"))
+    monkeypatch.setattr("providers.clients.BaseClient._request", network)
+    response = client.post(reverse("repositories:add"), {"repository_url": url})
+    assert response.status_code == 200
+    assert response.context["form"].errors["repository_url"]
+    assert response.context["form"]["repository_url"].value() == url
+    assert not Repository.objects.exists() and not AuditDispatch.objects.exists()
+    network.assert_not_called()
+
+
+@pytest.mark.parametrize("platform,factory", [
+    ("github", gh_repo), ("gitee", gitee_repo), ("gitlab", gl_repo),
+])
+def test_url_submission_validates_ownership_persists_stable_id_and_queues(
+    user, client, monkeypatch, platform, factory, django_capture_on_commit_callbacks
+):
+    from repositories.models import AuditDispatch, Repository, Submission
+    bind(user, platform)
+    client.force_login(user)
+    api = get_client(platform, OAuthBinding.objects.get(user=user), transport=transport_for(platform, factory()))
+    monkeypatch.setattr("providers.api.get_client", lambda platform, binding: api)
+    enqueue = Mock()
+    monkeypatch.setattr("repositories.tasks.audit_submission.delay", enqueue)
+    url = factory().get("web_url") or factory()["html_url"]
+    with django_capture_on_commit_callbacks(execute=True):
+        response = client.post(reverse("repositories:add"), {"repository_url": url})
+    assert response.status_code == 302
+    assert response.url == reverse("repositories:index") + "#submissions"
+    claim = Submission.objects.get(user=user)
+    assert claim.status == "queued"
+    assert claim.repository.platform == platform and claim.repository.platform_id == "12"
+    assert claim.repository.owner_id == "7" and claim.repository.archived
+    assert AuditDispatch.objects.get(submission=claim).dispatched_at
+    enqueue.assert_called_once_with(claim.pk, 1)
+    # URL and existing list submission share exactly the same identity and duplicate guard.
+    monkeypatch.setattr("providers.clients.get_client", lambda platform, binding: api)
+    duplicate = client.post(reverse("repositories:add"), {"platform": platform, "repository_id": "12"}, follow=True)
+    assert "已经提交过了" in duplicate.content.decode()
+    assert Repository.objects.count() == Submission.objects.count() == AuditDispatch.objects.count() == 1
+
+
+@pytest.mark.parametrize("platform,factory,changes", [
+    ("github", gh_repo, {"private": True}),
+    ("github", gh_repo, {"owner": {"id": 8, "type": "User"}}),
+    ("github", gh_repo, {"owner": {"id": 7, "type": "Organization"}}),
+    ("gitee", gitee_repo, {"namespace": {"type": "enterprise", "path": "alice"}}),
+    ("gitee", gitee_repo, {"public": False}),
+    ("gitlab", gl_repo, {"visibility": "internal"}),
+    ("gitlab", gl_repo, {"namespace": {"kind": "group", "path": "alice"}}),
+    ("gitlab", gl_repo, {"owner": {"id": 8}}),
+])
+def test_url_submission_cannot_bypass_eligibility(user, client, monkeypatch, platform, factory, changes):
+    from repositories.models import Repository, Submission
+    binding = bind(user, platform)
+    api = get_client(platform, binding, transport=transport_for(platform, factory(**changes)))
+    monkeypatch.setattr("providers.api.get_client", lambda platform, binding: api)
+    client.force_login(user)
+    response = client.post(reverse("repositories:add"), {"repository_url": f"https://{api.host}/alice/example"})
+    assert "无法提交这个仓库" in response.context["form"].errors["repository_url"][0]
+    assert not Repository.objects.exists() and not Submission.objects.exists()
+
+
+@pytest.mark.parametrize("status,expected", [(404, "无法提交这个仓库"), (429, "暂时无法连接仓库平台"),
+                                            (503, "暂时无法连接仓库平台")])
+def test_url_submission_provider_failure_preserves_input(user, client, monkeypatch, status, expected):
+    from repositories.models import Submission
+    api = GitHubClient(bind(user), transport=transport_for("github", gh_repo(), status=status))
+    monkeypatch.setattr("providers.api.get_client", lambda platform, binding: api)
+    client.force_login(user)
+    url = "https://github.com/alice/example"
+    response = client.post(reverse("repositories:add"), {"repository_url": url})
+    assert response.context["form"]["repository_url"].value() == url
+    assert expected in response.context["form"].errors["repository_url"][0]
+    assert not Submission.objects.exists()
+
+
+def test_url_submission_unbound_and_quota_fail_before_network(user, client, monkeypatch):
+    from repositories.models import Submission
+    network = Mock(side_effect=AssertionError("No network before binding and quota checks"))
+    monkeypatch.setattr("providers.clients.BaseClient._request", network)
+    client.force_login(user)
+    url = "https://github.com/alice/example"
+    response = client.post(reverse("repositories:add"), {"repository_url": url})
+    assert "请先绑定" in response.context["form"].errors["repository_url"][0]
+    bind(user)
+    user.quota = 0
+    user.save()
+    response = client.post(reverse("repositories:add"), {"repository_url": url})
+    assert "数量上限" in response.context["form"].errors["repository_url"][0]
+    assert not Submission.objects.exists()
+    network.assert_not_called()
+
+
+def test_default_submission_page_has_visible_url_entry_without_platform_selection(user, client, monkeypatch):
+    network = Mock(side_effect=AssertionError("Default submission page must not depend on platform APIs"))
+    monkeypatch.setattr("providers.api.get_client", network)
+    client.force_login(user)
+    for connected in (False, True):
+        if connected:
+            bind(user)
+        response = client.get(reverse("repositories:index"))
+        assert response.status_code == 200
+        assert 'name="repository_url"' in response.content.decode()
+        assert '提交仓库</button>' in response.content.decode()
+    network.assert_not_called()
+
+
+def test_url_submission_requires_login_and_csrf(user):
+    from repositories.models import Submission
+    client = Client(enforce_csrf_checks=True)
+    assert client.get(reverse("repositories:index")).status_code == 302
+    client.force_login(user)
+    assert client.post(reverse("repositories:add"), {"repository_url": "https://github.com/alice/example"}).status_code == 403
+    assert not Submission.objects.exists()
+
+
+def test_repository_ui_english_and_recheck_feedback(user, client, monkeypatch):
+    from repositories.models import AuditDispatch, Repository, Submission
+    api = GitHubClient(bind(user), transport=transport_for("github", gh_repo()))
+    repository = Repository.objects.create(**api.repository("12").as_metadata())
+    claim = Submission.objects.create(user=user, repository=repository, status="published",
+                                      reason="验证通过 / Checks passed")
+    AuditDispatch.objects.create(submission=claim, generation=claim.generation)
+    client.force_login(user)
+    client.cookies["django_language"] = "en"
+    response = client.get(reverse("repositories:index"))
+    html = response.content.decode()
+    assert "Submit repository" in html and "Listed" in html and "Awaiting results" in html
+    assert "Checks passed" in html and "验证通过" not in html
+    enqueue = Mock()
+    monkeypatch.setattr("repositories.tasks.schedule_audit", enqueue)
+    response = client.post(reverse("repositories:recheck", args=[claim.pk]), follow=True)
+    assert "Checks are already queued or running." in response.content.decode()
+    enqueue.assert_not_called()

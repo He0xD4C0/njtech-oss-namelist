@@ -2,7 +2,7 @@
 <div id="setup-flow" class="setup-shell mx-auto" data-revision="{{ revision }}" data-waiting="{{ task.waiting|yesno:'true,false' }}" data-url="{{ task.url|default:'/setup/' }}" data-busy="{% ui '正在处理，请稍候…' 'Working, please wait…' %}" data-network-error="{% ui '连接中断，操作可能已经完成。请先检查当前状态，不要重复提交。' 'Connection interrupted. The operation may have completed. Check status before submitting again.' %}" data-unsaved="{% ui '还有未保存的修改，确定离开当前任务吗？' 'You have unsaved changes. Leave this task?' %}">
   <div class="page-header mb-4"><div class="page-pretitle">NJTECH OSS</div><h1 class="page-title">{% ui '一起完成站点初始化' 'Let’s set up your site' %}</h1><p class="text-secondary mt-2">{% ui '一次完成一件事。已保存的配置会保留，随时可以返回修改。' 'One task at a time. Saved settings are retained and can be edited later.' %}</p></div>
   {% if messages %}<div aria-live="polite">{% for message in messages %}<div role="status" class="alert {% if message.tags == 'error' %}alert-danger{% elif message.tags == 'success' %}alert-success{% else %}alert-info{% endif %}">{{ message }}</div>{% endfor %}</div>{% endif %}
-  <div id="setup-connection-error" class="alert alert-warning" role="alert" hidden><p class="mb-2" data-error-text></p><a class="btn btn-sm" href="{{ task.url|default:'/setup/' }}" data-check-status>{% ui '检查当前状态' 'Check current status' %}</a></div>
+  <div id="setup-connection-error" class="alert alert-warning" role="alert" hidden><p class="mb-2" data-error-text></p><a class="btn btn-sm btn-outline-secondary" href="{{ task.url|default:'/setup/' }}" data-check-status>{% ui '检查当前状态' 'Check current status' %}</a></div>
   {% if bootstrap_unavailable %}<div class="alert alert-danger" role="alert">{% ui '服务器尚未配置初始化密钥。请管理员设置 BOOTSTRAP_SECRET 后重试。' 'The server bootstrap secret is missing. Configure BOOTSTRAP_SECRET and retry.' %}</div>
   {% elif not authorized %}
     {% if email_confirmed %}<p class="alert alert-success" role="status">{% ui '邮箱已确认。继续配置仍需要服务器初始化密钥。' 'Email confirmed. The bootstrap secret is still required to configure the site.' %}</p>{% endif %}
@@ -39,7 +39,7 @@ blacklist/restricted-license.txt</pre><p class="form-hint">{% ui '文件中放�
             {% elif task.key == 'branding' %}<button class="btn btn-primary" name="action" value="configure" type="submit">{% ui '上传并应用 Logo' 'Upload and apply logo' %}</button>
             {% elif task.key == 'backup' %}<button class="btn btn-primary" name="action" value="backup-test" type="submit" {% if backup.busy or not backup.managed %}disabled{% endif %}>{% ui '保存并测试连接' 'Save and test connection' %}</button>
             {% else %}<button class="btn btn-primary" name="action" value="configure" type="submit">{% ui '保存并继续' 'Save and continue' %}</button>{% endif %}
-            {% if task.ready and task.key != 'operations' %}<a class="btn {% if task.key == 'documents' or task.key == 'licenses' %}btn-primary{% endif %}" data-setup-link href="{{ next_url }}">{% ui '继续' 'Continue' %}</a>{% endif %}
+            {% if task.ready and task.key != 'operations' %}<a class="btn {% if task.key == 'documents' or task.key == 'licenses' %}btn-primary{% else %}btn-outline-secondary{% endif %}" data-setup-link href="{{ next_url }}">{% ui '继续' 'Continue' %}</a>{% endif %}
           </div>
         </form>{% endif %}
         {% if task.key == 'backup' %}{% include 'core/backup_status.html' with setup_backup=True %}{% endif %}
@@ -53,8 +53,8 @@ blacklist/restricted-license.txt</pre><p class="form-hint">{% ui '文件中放�
         {% endif %}
       </div></section>
       <div class="d-flex flex-wrap justify-content-between gap-2 mt-3">
-        {% if previous_url %}<a class="btn" data-setup-link href="{{ previous_url }}">{% ui '上一步' 'Back' %}</a>{% else %}<span></span>{% endif %}
-        {% if not task.required %}<form method="post" data-setup-form data-navigation-form>{% csrf_token %}<input type="hidden" name="step" value="{{ step }}"><input type="hidden" name="task" value="{{ task.key }}"><button class="btn btn-link" name="action" value="skip" type="submit">{% if task.ready %}{% ui '保留现有配置，继续' 'Keep settings and continue' %}{% else %}{% ui '稍后配置' 'Set up later' %}{% endif %}</button></form>{% endif %}
+        {% if previous_url %}<a class="btn btn-outline-secondary" data-setup-link href="{{ previous_url }}">{% ui '上一步' 'Back' %}</a>{% else %}<span></span>{% endif %}
+        {% if not task.required %}<form method="post" data-setup-form data-navigation-form>{% csrf_token %}<input type="hidden" name="step" value="{{ step }}"><input type="hidden" name="task" value="{{ task.key }}"><button class="btn btn-outline-secondary" name="action" value="skip" type="submit">{% if task.ready %}{% ui '保留现有配置，继续' 'Keep settings and continue' %}{% else %}{% ui '稍后配置' 'Set up later' %}{% endif %}</button></form>{% endif %}
       </div>
     </div>
   </div>

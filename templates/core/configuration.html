@@ -2,7 +2,7 @@
 {% block content %}
 <div class="flex flex-col gap-6">
   {% if new_secret %}{% component 'unfold/components/card.html' with title='Webhook 密钥 / Webhook secret' %}<p role="alert">{% ui '新密钥仅显示一次，请立即安全保存。' 'The new secret is shown only once. Store it securely now.' %}</p><code class="break-all">{{ new_secret }}</code>{% endcomponent %}{% endif %}
-  <nav class="flex flex-wrap gap-2" aria-label="{% ui '配置分组' 'Configuration groups' %}">{% for item in groups %}<a class="border border-base-200 dark:border-base-700 rounded-default px-3 py-2" href="#{{ item.key }}">{{ item.title }}</a>{% endfor %}</nav>
+  <nav class="flex flex-wrap gap-2" aria-label="{% ui '配置分组' 'Configuration groups' %}">{% for item in groups %}<a class="admin-action" href="#{{ item.key }}">{{ item.title }}</a>{% endfor %}</nav>
   {% for item in groups %}<section id="{{ item.key }}" {% if item.key == 'backup' %}data-backup-admin{% endif %}>
     {% component 'unfold/components/card.html' with title=item.title %}
       {% if item.form.callback_url %}<p class="text-subtle mb-4">{% ui '创建 OAuth 应用并填写此回调地址：' 'Create an OAuth application with this callback URL:' %}<br><code class="break-all">{{ item.form.callback_url }}</code><br><a href="{{ item.form.provider_link }}" target="_blank" rel="noopener noreferrer">{% ui '打开平台应用设置' 'Open platform application settings' %}</a></p>{% endif %}
@@ -18,8 +18,8 @@
     {% endcomponent %}
   </section>{% endfor %}
   {% component 'unfold/components/card.html' with title='任务状态 / Task status' %}
-    <a class="text-primary-600" href="{% url 'core:configuration' %}">{% ui '刷新状态' 'Refresh status' %}</a>
-    <ul class="mt-4">{% for run in sync_runs %}<li class="py-3 border-b border-base-200 dark:border-base-700"><strong>{{ run.kind }} · {{ run.status }}</strong> · {{ run.created_at }}{% if run.message %}<p>{{ run.message }}</p>{% endif %}{% if run.recovery_label %}<p>{{ run.recovery_label }}</p>{% endif %}{% if run.recoverable %}<form method="post">{% csrf_token %}<input type="hidden" name="run_id" value="{{ run.pk }}"><button type="submit" name="action" value="recover-{{ run.kind }}" class="text-primary-600">{% ui '重新尝试' 'Try again' %}</button></form>{% endif %}</li>{% empty %}<li>{% ui '暂无完成记录；提交任务后请刷新查看结果。' 'No completed runs; refresh after queuing to check results.' %}</li>{% endfor %}</ul>
+    <a class="admin-action" href="{% url 'core:configuration' %}">{% ui '刷新状态' 'Refresh status' %}</a>
+    <ul class="mt-4">{% for run in sync_runs %}<li class="py-3 border-b border-base-200 dark:border-base-700"><strong>{{ run.kind }} · {{ run.status }}</strong> · {{ run.created_at }}{% if run.message %}<p>{{ run.message }}</p>{% endif %}{% if run.recovery_label %}<p>{{ run.recovery_label }}</p>{% endif %}{% if run.recoverable %}<form method="post">{% csrf_token %}<input type="hidden" name="run_id" value="{{ run.pk }}"><button type="submit" name="action" value="recover-{{ run.kind }}" class="admin-action">{% ui '重新尝试' 'Try again' %}</button></form>{% endif %}</li>{% empty %}<li>{% ui '暂无完成记录；提交任务后请刷新查看结果。' 'No completed runs; refresh after queuing to check results.' %}</li>{% endfor %}</ul>
   {% endcomponent %}
 </div>
 <script src="{% static 'js/backup-status.js' %}" defer></script>

@@ -1,0 +1,7 @@
+{% extends 'base.html' %}{% load ui %}
+{% block title %}{% ui '平台授权已取消' 'Platform authorization cancelled' %} · {{ site_title }}{% endblock %}
+{% block content %}<section class="account-shell card"><div class="card-body">
+<h1>{% block failure_title %}{% ui '平台授权已取消' 'Platform authorization cancelled' %}{% endblock %}</h1>
+<p>{% block failure_message %}{% ui '本次授权没有完成。返回后可以重新选择平台并授权。' 'Authorization was not completed. Return to choose a platform and try again.' %}{% endblock %}</p>
+{% if user.is_authenticated %}<a class="btn btn-primary" href="{% url 'providers:index' %}">{% ui '返回平台绑定' 'Return to platform connections' %}</a>{% else %}<a class="btn btn-primary" href="{% url 'account_login' %}">{% ui '返回登录' 'Return to sign in' %}</a>{% endif %}
+</div></section>{% endblock %}

@@ -35,6 +35,9 @@
         else image.removeAttribute('src');
       });
       document.querySelectorAll('[data-brand-default]').forEach(item => { item.hidden = !!data.brand_logo_url; });
+      const favicon = document.querySelector('[data-brand-favicon]');
+      if (data.brand_logo_url) favicon?.setAttribute('href', data.brand_logo_url);
+      else favicon?.removeAttribute('href');
     }
     dirty = false;
     uncertain = false;

@@ -8,6 +8,7 @@ from .clients import (
     RepoData,
     RepositoryIneligible,
     get_client,
+    parse_repository_url,
     validate_repository,
 )
 
@@ -20,6 +21,7 @@ __all__ = [
     "RepoData",
     "RepositoryIneligible",
     "get_client",
+    "parse_repository_url",
     "validate_repository",
 ]
 
