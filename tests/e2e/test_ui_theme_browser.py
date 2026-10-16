@@ -148,6 +148,7 @@ def test_all_page_controls(page, live_server, session_login, artifact_dir, setti
     visit('/setup/', 'setup-access')
     page.get_by_label('服务器初始化密钥').fill(settings.BOOTSTRAP_SECRET)
     page.get_by_role('button', name='验证并开始').click()
+    expect(page.get_by_role('heading', name='创建初始管理员', exact=True)).to_be_visible()
     for step, tasks in [('mail',['smtp','admin']), ('requirements',['turnstile','documents','licenses']),
                         ('integrations',['github','gitee','gitlab','storage']),
                         ('operations',['branding','backup','operations']), ('review',['review'])]:
