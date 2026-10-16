@@ -27,6 +27,11 @@ for (const [source, destination] of assets) {
       .replace(/@import\s+(?:url\([^;]*https?:[^;]*\)|["'][^"']*https?:[^"']*["'])\s*;/g, '')
       .replace(/\/\*# sourceMappingURL=.*?\*\//g, '');
     await writeFile(output, css);
+  } else if (source.endsWith('.js')) {
+    // Source maps are not shipped with the vendored assets.
+    const js = (await readFile(path.join(root, 'node_modules', source), 'utf8'))
+      .replace(/^\/\/# sourceMappingURL=.*$/gm, '');
+    await writeFile(output, js);
   } else {
     await copyFile(path.join(root, 'node_modules', source), output);
   }

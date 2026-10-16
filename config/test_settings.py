@@ -8,6 +8,11 @@ os.environ.setdefault("DJANGO_SECRET_KEY", "isolated-test-settings-not-for-produ
 from .settings import *  # noqa: F403
 
 DEBUG = True
+# Unit tests do not build assets; production manifest handling is covered by the container smoke test.
+STORAGES = {
+    **STORAGES,  # noqa: F405
+    "staticfiles": {"BACKEND": "django.contrib.staticfiles.storage.StaticFilesStorage"},
+}
 APP_ENCRYPTION_KEY = urlsafe_b64encode(b"0" * 32).decode()
 BOOTSTRAP_SECRET = "local-test-bootstrap-secret"
 SESSION_COOKIE_NAME = "sessionid"

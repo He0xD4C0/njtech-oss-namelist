@@ -3,6 +3,7 @@
 import gzip
 import json
 import os
+import re
 import secrets
 import socket
 import subprocess
@@ -130,8 +131,17 @@ def main(configured):
                 else:
                     raise AssertionError("Uninitialized business entrance must redirect")
             with urlopen("http://localhost:18000/setup/", timeout=20) as response:
-                assert response.status == 200 and b"bootstrap-secret" in response.read()
+                setup_html = response.read().decode()
+                assert response.status == 200 and "bootstrap-secret" in setup_html
                 assert "no-store" in response.headers["Cache-Control"]
+            # Returning browsers must get a new URL whenever deployed asset content changes.
+            asset_urls = re.findall(r'(?:href|src)="(/static/[^"?]+\.(?:css|js))"', setup_html)
+            assert asset_urls and any("/css/site." in path for path in asset_urls)
+            for path in asset_urls:
+                assert re.search(r"\.[0-9a-f]{12}\.(?:css|js)$", path), path
+                with urlopen(f"http://localhost:18000{path}", timeout=20) as response:
+                    assert response.status == 200 and response.read()
+                    assert "immutable" in response.headers["Cache-Control"], path
             # Production Gunicorn + WhiteNoise, not Django's development static handler.
             for path, mime in (
                 ("vendor/tabler/tabler.min.css", "text/css"),
