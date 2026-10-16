@@ -43,6 +43,10 @@ def disconnect_platform(user, platform):
 
 
 def delete_account(user):
+    from django.core.exceptions import ValidationError
+
+    if user.is_superuser:
+        raise ValidationError("不能注销超管 / The superuser cannot be deleted")
     from repositories.services import freeze_completed_months
 
     freeze_completed_months()

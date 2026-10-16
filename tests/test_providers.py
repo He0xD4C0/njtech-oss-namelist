@@ -11,6 +11,7 @@ from allauth.account.models import EmailAddress
 from allauth.socialaccount.models import SocialAccount, SocialApp, SocialLogin, SocialToken
 from allauth.socialaccount.providers import registry
 from django.contrib.auth import get_user_model
+from django.core import mail
 from django.core.cache import cache
 from django.db import IntegrityError, transaction
 from django.test import Client, RequestFactory, override_settings
@@ -307,7 +308,7 @@ def test_provider_verified_email_is_not_site_verification(user):
     request = RequestFactory().get("/")
     request.user = user
     SocialAdapter().pre_social_login(request, login)
-    assert login.email_addresses[0].verified is False
+    assert login.email_addresses == []
     assert SocialAdapter().is_email_verified(None, "provided@example.test") is False
     assert SocialAdapter().can_authenticate_by_email(login, "provided@example.test") is False
 
@@ -450,7 +451,7 @@ def test_unconfigured_platform_routes_are_disabled(client, platform):
 
 
 @override_settings(EMAIL_BACKEND="django.core.mail.backends.locmem.EmailBackend")
-def test_full_social_signup_password_local_email_consent_and_encrypted_pending_session(client, monkeypatch):
+def test_full_social_signup_password_local_email_consent_and_encrypted_pending_session(client, monkeypatch, django_capture_on_commit_callbacks):
     configure("github")
     SiteState.objects.update_or_create(pk=1, defaults={"activated_at": timezone.now()})
     set_setting("smtp_host", "smtp.example.test")
@@ -472,6 +473,24 @@ def test_full_social_signup_password_local_email_consent_and_encrypted_pending_s
     assert "callback-access-secret" not in json.dumps(pending)
     assert "callback-refresh-secret" not in json.dumps(pending)
     assert "github-secret" not in json.dumps(pending)
+    assert "platform@example.test" not in json.dumps(pending)
+    assert not EmailAddress.objects.exists()
+    # A provider address (even claimed verified) cannot complete local signup.
+    payload = {
+        "username": "newuser", "email": "platform@example.test", "password1": "RobustLocalPassword!4",
+        "password2": "RobustLocalPassword!4", "policy_language": "zh-CN", "accept_policies": "on",
+        "policy_versions": json.dumps({"zh-CN": {kind: "b" * 40 for kind in ("privacy", "terms", "inclusion")}}),
+    }
+    assert client.post(reverse("socialaccount_signup"), payload).status_code == 200
+    assert not get_user_model().objects.exists() and not EmailAddress.objects.exists()
+    assert "RobustLocalPassword!4" not in json.dumps(client.session["socialaccount_sociallogin"])
+    monkeypatch.setattr("core.turnstile.verify_turnstile", lambda request: None)
+    assert client.post("/accounts/email-verification/request/", {"purpose": "social", "email": "newuser@example.test"}).status_code == 200
+    import re
+    path = re.search(r"/accounts/confirm-email/[^\s]+/", mail.outbox[-1].body).group(0)
+    assert not get_user_model().objects.filter(username="newuser").exists()
+    with django_capture_on_commit_callbacks(execute=True):
+        assert client.post(path).status_code == 200
     response = client.post(reverse("socialaccount_signup"), {
         "username": "newuser", "email": "newuser@example.test", "password1": "RobustLocalPassword!4",
         "password2": "RobustLocalPassword!4", "policy_language": "zh-CN", "accept_policies": "on",
@@ -480,7 +499,7 @@ def test_full_social_signup_password_local_email_consent_and_encrypted_pending_s
     assert response.status_code == 302
     user = get_user_model().objects.get(username="newuser")
     assert user.check_password("RobustLocalPassword!4")
-    assert not EmailAddress.objects.filter(user=user, verified=True).exists()
+    assert EmailAddress.objects.filter(user=user, verified=True).exists()
     assert PolicyConsent.objects.filter(user=user).count() == 1
     assert OAuthBinding.objects.get(user=user).platform_user_id == "7"
     imported.assert_called_once()

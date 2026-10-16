@@ -5,6 +5,8 @@ import re
 import sys
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+
 
 class NotConfigured(ValueError):
     pass
@@ -30,21 +32,23 @@ def secret(name):
     return value
 
 
-def configuration():
+def configuration(values=None, secrets=None):
+    read_setting = setting if values is None else lambda name, default="": values.get(name, default)
+    read_secret = secret if secrets is None else lambda name: secrets.get(name, "")
     # Validate every supplied value before classifying missing configuration.
-    stanza = setting("BACKUP_STANZA", "namelist")
-    kind = setting("BACKUP_REPO_TYPE", "s3")
-    repo_path = setting("BACKUP_REPO_PATH")
-    endpoint = setting("BACKUP_S3_ENDPOINT")
-    bucket = setting("BACKUP_S3_BUCKET")
-    region = setting("BACKUP_S3_REGION")
-    style = setting("BACKUP_S3_URI_STYLE", "path")
-    pg_path = setting("BACKUP_PG_PATH", "/var/lib/postgresql/data")
-    pg_socket = setting("BACKUP_PG_SOCKET", "/var/run/postgresql")
-    pg_user = setting("BACKUP_PG_USER", "postgres")
-    password = secret("BACKUP_CIPHER_FILE")
-    key = secret("BACKUP_S3_KEY_FILE") if kind == "s3" else ""
-    key_secret = secret("BACKUP_S3_SECRET_FILE") if kind == "s3" else ""
+    stanza = read_setting("BACKUP_STANZA", "namelist")
+    kind = read_setting("BACKUP_REPO_TYPE", "s3")
+    repo_path = read_setting("BACKUP_REPO_PATH")
+    endpoint = read_setting("BACKUP_S3_ENDPOINT")
+    bucket = read_setting("BACKUP_S3_BUCKET")
+    region = read_setting("BACKUP_S3_REGION")
+    style = read_setting("BACKUP_S3_URI_STYLE", "path")
+    pg_path = read_setting("BACKUP_PG_PATH", "/var/lib/postgresql/data")
+    pg_socket = read_setting("BACKUP_PG_SOCKET", "/var/run/postgresql")
+    pg_user = read_setting("BACKUP_PG_USER", "postgres")
+    password = read_secret("BACKUP_CIPHER_FILE")
+    key = read_secret("BACKUP_S3_KEY_FILE") if kind == "s3" else ""
+    key_secret = read_secret("BACKUP_S3_SECRET_FILE") if kind == "s3" else ""
     if stanza and not re.fullmatch(r"[a-z][a-z0-9_-]{0,40}", stanza):
         raise ValueError("Invalid BACKUP_STANZA")
     if kind and kind not in {"s3", "posix"}:
@@ -59,6 +63,9 @@ def configuration():
         raise ValueError("BACKUP_S3_ENDPOINT is a hostname, not a URL")
     if style and style not in {"path", "host"}:
         raise ValueError("Invalid BACKUP_S3_URI_STYLE")
+    for value in (stanza, kind, repo_path, endpoint, bucket, region, style, password, key, key_secret):
+        if any(c in value for c in "\r\n\x00"):
+            raise ValueError("Invalid backup configuration value")
     required = [stanza, kind, style, repo_path, password, pg_path, pg_socket, pg_user]
     if kind == "s3":
         required += [endpoint, bucket, region, key, key_secret]
@@ -110,6 +117,10 @@ def configuration():
 
 
 def readiness():
+    from deploy.backup import managed
+
+    if managed.enabled():
+        return "ready" if managed.active()["state"] == "active" else "not-configured"
     enabled = setting("BACKUP_ENABLED", "1")
     if enabled not in {"0", "1"}:
         raise ValueError("BACKUP_ENABLED must be 0 or 1")

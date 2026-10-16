@@ -20,7 +20,7 @@ pytestmark = pytest.mark.django_db
 
 def verified_user(**kwargs):
     user = User.objects.create_user(
-        username=kwargs.pop("username", "tester"),
+        username=kwargs.pop("username", "admin" if kwargs.get("is_superuser") else "tester"),
         email=kwargs.pop("email", "tester@example.org"),
         password="safe-user-password!443",
         **kwargs,
@@ -80,11 +80,11 @@ def test_signup_consent_requires_current_versions(rf):
         "cf-turnstile-response": "token",
     }
     request = rf.post("/accounts/signup/", data)
-    with patch("core.forms.verify_turnstile"):
+    with patch("core.forms.verify_turnstile"), patch("core.email_verification.proven", return_value=True):
         form = SignupForm(data, request=request)
         assert form.is_valid(), form.errors
     PolicyDocument.objects.filter(kind="terms").update(source_sha="b" * 40)
-    with patch("core.forms.verify_turnstile"):
+    with patch("core.forms.verify_turnstile"), patch("core.email_verification.proven", return_value=True):
         assert not SignupForm(data, request=request).is_valid()
 
 
@@ -169,43 +169,29 @@ def test_setup_authorization_closes_permanently(client, settings):
     assert client.get("/setup/").status_code == 404
 
 
-def test_bootstrap_initial_admin_requires_real_site_confirmation_flow(client, settings):
+def test_bootstrap_initial_admin_requires_real_site_confirmation_flow(client, settings, django_capture_on_commit_callbacks):
     import re
 
     from django.core import mail
 
-    assert (
-        client.post("/setup/", {"action": "authorize", "secret": settings.BOOTSTRAP_SECRET}).status_code
-        == 302
-    )
-    for key, value in {
-        "smtp_host": "local.invalid",
-        "turnstile_site_key": "test-only",
-        "turnstile_secret_key": "test-secret",
-    }.items():
+    assert client.post("/setup/", {"action": "authorize", "secret": settings.BOOTSTRAP_SECRET}).status_code == 302
+    for key, value in {"smtp_host": "local.invalid", "smtp_verified": "1", "turnstile_site_key": "test-only", "turnstile_secret_key": "test-secret"}.items():
         set_setting(key, value)
     for kind in ("privacy", "terms", "inclusion"):
         PolicyDocument.objects.create(kind=kind, language="zh-CN", body="Policy", source_sha="a" * 40)
-    response = client.post(
-        "/setup/",
-        {
-            "action": "account",
-            "username": "first-admin",
-            "email": "first@example.test",
-            "password": "A-strong-initial-password-527!",
-        },
-    )
-    assert response.status_code == 302
-    user = User.objects.get(username="first-admin")
-    assert not user.is_staff and not user.is_superuser
-    client.post("/setup/", {"action": "activate"})
-    assert SiteState.objects.get(pk=1).activated_at is None
+    data = {"action": "account", "username": "admin", "email": "first@example.test", "password": "A-strong-initial-password-527!"}
+    assert client.post("/setup/", data).status_code == 200
+    assert not User.objects.exists()
+    assert client.post("/accounts/email-verification/request/", {"purpose": "setup", "email": data["email"]}).status_code == 200
     path = re.search(r"/accounts/confirm-email/[^\s]+/", mail.outbox[-1].body).group(0)
-    assert client.post(path).status_code == 302
+    with django_capture_on_commit_callbacks(execute=True):
+        assert client.post(path).status_code == 200
+    assert not User.objects.exists()
+    assert client.post("/setup/", data).status_code == 302
+    user = User.objects.get(username="admin")
+    assert user.is_staff and user.is_superuser
     assert EmailAddress.objects.get(user=user).verified
     assert client.post("/setup/", {"action": "activate"}).status_code == 302
-    user.refresh_from_db()
-    assert user.is_staff and user.is_superuser
     assert client.get("/setup/").status_code == 404
 
 
@@ -262,7 +248,7 @@ def test_admin_cannot_edit_runtime_and_must_have_verified_email(client, initiali
     client.force_login(admin)
     assert client.get("/manage/settings/").status_code == 302
     assert client.get("/admin/core/user/").status_code == 403
-    EmailAddress.objects.filter(user=admin).update(verified=False)
+    EmailAddress.objects.filter(user=admin).delete()
     assert client.get("/account/profile/").url.endswith("/accounts/email/")
 
 

@@ -1,9 +1,10 @@
 from django.urls import path
 
-from . import views
+from . import branding, views
 
 app_name = "core"
 urlpatterns = [
+    path("site-logo/<str:revision>.png", branding.serve_logo, name="site-logo"),
     path("health/", views.health, name="health"),
     path("setup/", views.setup, name="setup"),
     path("manage/settings/", views.configuration, name="configuration"),

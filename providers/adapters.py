@@ -43,8 +43,9 @@ class SocialAdapter(DefaultSocialAccountAdapter):
         return False
 
     def pre_social_login(self, request, sociallogin):
-        for address in sociallogin.email_addresses:
-            address.verified = False
+        sociallogin.email_addresses = []
+        if not sociallogin.is_existing:
+            sociallogin.user.email = ""
         platform, uid = sociallogin.account.provider, str(sociallogin.account.uid)
         if platform not in SCOPES or not uid:
             raise ImmediateHttpResponse(HttpResponseRedirect(reverse("providers:index")))
@@ -83,8 +84,7 @@ class SocialAdapter(DefaultSocialAccountAdapter):
     def save_user(self, request, sociallogin, form=None):
         # The account adapter owns password and PolicyConsent creation. Calling
         # it exactly once via allauth avoids duplicate consent records.
-        for address in sociallogin.email_addresses:
-            address.verified = False
+        sociallogin.email_addresses = []
         user = super().save_user(request, sociallogin, form=form)
         from .services import BindingConflict, save_binding
         try:

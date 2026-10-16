@@ -1,23 +1,26 @@
-{% extends 'admin/base_site.html' %}{% load unfold ui %}
+{% extends 'admin/base_site.html' %}{% load unfold ui static %}
 {% block content %}
 <div class="flex flex-col gap-6">
   {% if new_secret %}{% component 'unfold/components/card.html' with title='Webhook 密钥 / Webhook secret' %}<p role="alert">{% ui '新密钥仅显示一次，请立即安全保存。' 'The new secret is shown only once. Store it securely now.' %}</p><code class="break-all">{{ new_secret }}</code>{% endcomponent %}{% endif %}
   <nav class="flex flex-wrap gap-2" aria-label="{% ui '配置分组' 'Configuration groups' %}">{% for item in groups %}<a class="border border-base-200 dark:border-base-700 rounded-default px-3 py-2" href="#{{ item.key }}">{{ item.title }}</a>{% endfor %}</nav>
-  {% for item in groups %}<section id="{{ item.key }}">
+  {% for item in groups %}<section id="{{ item.key }}" {% if item.key == 'backup' %}data-backup-admin{% endif %}>
     {% component 'unfold/components/card.html' with title=item.title %}
-      <form method="post">{% csrf_token %}<input type="hidden" name="action" value="save"><input type="hidden" name="group" value="{{ item.key }}">{% include 'ui/admin_form.html' with form=item.form %}{% component 'unfold/components/button.html' with submit=1 %}{% ui '保存 / Save' 'Save' %}{% endcomponent %}</form>
-      {% if item.key == 'smtp' %}<form method="post" class="mt-4">{% csrf_token %}{% component 'unfold/components/button.html' with submit=1 name='action' value='test-smtp' variant='default' %}{% ui '测试 SMTP' 'Test SMTP' %}{% endcomponent %}</form>{% endif %}
+      {% if item.form.callback_url %}<p class="text-subtle mb-4">{% ui '创建 OAuth 应用并填写此回调地址：' 'Create an OAuth application with this callback URL:' %}<br><code class="break-all">{{ item.form.callback_url }}</code><br><a href="{{ item.form.provider_link }}" target="_blank" rel="noopener noreferrer">{% ui '打开平台应用设置' 'Open platform application settings' %}</a></p>{% endif %}
+      {% if item.key == 'branding' %}{% include 'core/logo_preview.html' %}{% endif %}<form method="post" enctype="multipart/form-data">{% csrf_token %}<input type="hidden" name="action" value="{% if item.key == 'backup' %}backup-test{% else %}save{% endif %}"><input type="hidden" name="group" value="{{ item.key }}">{% include 'ui/admin_form.html' with form=item.form %}{% component 'unfold/components/button.html' with submit=1 %}{% if item.key == 'backup' %}{% ui '保存并测试连接' 'Save and test connection' %}{% elif item.key == 'branding' %}{% ui '上传并应用 Logo' 'Upload and apply logo' %}{% else %}{% ui '保存' 'Save' %}{% endif %}{% endcomponent %}</form>
+      {% if item.key == 'smtp' %}<form method="post" class="mt-4">{% csrf_token %}{% include 'ui/admin_form.html' with form=recipient_form %}{% component 'unfold/components/button.html' with submit=1 name='action' value='test-smtp' variant='default' %}{% ui '测试 SMTP' 'Test SMTP' %}{% endcomponent %}</form>{% endif %}
       {% if item.key == 'storage' %}<form method="post" class="mt-4">{% csrf_token %}{% component 'unfold/components/button.html' with submit=1 name='action' value='test-s3' variant='default' %}{% ui '测试头像 S3' 'Test avatar S3' %}{% endcomponent %}</form>{% endif %}
       {% if item.key == 'documents' or item.key == 'licenses' %}<form method="post" class="mt-4 flex flex-wrap gap-2">{% csrf_token %}
         {% if item.key == 'documents' %}{% component 'unfold/components/button.html' with submit=1 name='action' value='sync-documents' variant='default' %}{% ui '同步政策正文' 'Sync policies' %}{% endcomponent %}{% component 'unfold/components/button.html' with submit=1 name='action' value='policy-webhook' variant='default' %}{% ui '生成 / 轮换 Webhook 密钥' 'Rotate webhook secret' %}{% endcomponent %}
         {% else %}{% component 'unfold/components/button.html' with submit=1 name='action' value='sync-licenses' variant='default' %}{% ui '同步许可证策略' 'Sync license policy' %}{% endcomponent %}{% component 'unfold/components/button.html' with submit=1 name='action' value='license-webhook' variant='default' %}{% ui '生成 / 轮换 Webhook 密钥' 'Rotate webhook secret' %}{% endcomponent %}{% endif %}
       </form><p class="text-subtle mt-4">Webhook: <code>/webhooks/{{ item.key }}/</code></p>{% endif %}
+      {% if item.key == 'backup' %}{% include 'core/backup_status.html' %}{% endif %}
       {% if item.key == 'operations' %}<p role="status" class="mt-4">{{ backup_status }}</p>{% endif %}
     {% endcomponent %}
   </section>{% endfor %}
   {% component 'unfold/components/card.html' with title='任务状态 / Task status' %}
     <a class="text-primary-600" href="{% url 'core:configuration' %}">{% ui '刷新状态' 'Refresh status' %}</a>
-    <ul class="mt-4">{% for run in sync_runs %}<li class="py-3 border-b border-base-200 dark:border-base-700"><strong>{{ run.kind }} · {{ run.status }}</strong> · {{ run.created_at }}{% if run.message %}<p>{{ run.message }}</p>{% endif %}</li>{% empty %}<li>{% ui '暂无完成记录；提交任务后请刷新查看结果。' 'No completed runs; refresh after queuing to check results.' %}</li>{% endfor %}</ul>
+    <ul class="mt-4">{% for run in sync_runs %}<li class="py-3 border-b border-base-200 dark:border-base-700"><strong>{{ run.kind }} · {{ run.status }}</strong> · {{ run.created_at }}{% if run.message %}<p>{{ run.message }}</p>{% endif %}{% if run.recovery_label %}<p>{{ run.recovery_label }}</p>{% endif %}{% if run.recoverable %}<form method="post">{% csrf_token %}<input type="hidden" name="run_id" value="{{ run.pk }}"><button type="submit" name="action" value="recover-{{ run.kind }}" class="text-primary-600">{% ui '重新尝试' 'Try again' %}</button></form>{% endif %}</li>{% empty %}<li>{% ui '暂无完成记录；提交任务后请刷新查看结果。' 'No completed runs; refresh after queuing to check results.' %}</li>{% endfor %}</ul>
   {% endcomponent %}
 </div>
+<script src="{% static 'js/backup-status.js' %}" defer></script>
 {% endblock %}

@@ -31,12 +31,14 @@ class SiteInitializationMiddleware:
             match = resolve(request.path_info)
         except Resolver404:
             match = None
-        allowed = match and match.view_name in {"core:setup", "set_language"}
-        if match and match.view_name == "account_confirm_email" and state and state.bootstrap_user_id:
-            from allauth.account.models import get_emailconfirmation_model
+        allowed = match and match.view_name in {"core:setup", "set_language", "core:site-logo"}
+        if match and match.view_name in {"email_verification_request", "email_verification_status"}:
+            allowed = (request.POST.get("purpose") or request.GET.get("purpose")) == "setup"
+        if match and match.view_name == "account_confirm_email":
+            from .email_verification import decode
 
-            confirmation = get_emailconfirmation_model().from_key(match.kwargs["key"])
-            allowed = bool(confirmation and confirmation.email_address.user_id == state.bootstrap_user_id)
+            _, proof = decode(match.kwargs["key"])
+            allowed = bool(proof and proof["purpose"] == "setup")
             if not allowed:
                 response = redirect("/setup/?step=mail&confirmation=invalid")
                 add_never_cache_headers(response)
@@ -51,12 +53,25 @@ class ProxyHeadersMiddleware:
         self.get_response = get_response
 
     def __call__(self, request):
-        if settings.TRUST_PROXY_HEADERS:
-            value = request.META.get("HTTP_X_REAL_IP", request.META.get("REMOTE_ADDR", ""))
+        peer = request.META.get("REMOTE_ADDR", "")
+        try:
+            address = ip_address(peer)
+        except ValueError:
+            address = None
+        trusted = settings.TRUST_PROXY_HEADERS and address is not None and any(
+            address in network for network in settings.TRUSTED_PROXY_CIDRS
+        )
+        if trusted:
+            value = request.META.get("HTTP_X_REAL_IP", peer)
             try:
                 request.META["HTTP_X_REAL_IP"] = str(ip_address(value))
             except ValueError:
                 return HttpResponseBadRequest("Expected a single client IP address")
+            if request.META.get("HTTP_X_FORWARDED_PROTO", "http") not in {"http", "https"}:
+                return HttpResponseBadRequest("Expected a single forwarded protocol: http or https")
+        else:
+            request.META["HTTP_X_REAL_IP"] = peer
+            request.META.pop("HTTP_X_FORWARDED_PROTO", None)
         return self.get_response(request)
 
 
@@ -75,8 +90,8 @@ class AccountReadinessMiddleware:
             if protected:
                 if not request.user.has_usable_password():
                     return redirect("account_set_password")
-                if not EmailAddress.objects.filter(
-                    user=request.user, email__iexact=request.user.email, verified=True
+                if not request.user.is_superuser and not EmailAddress.objects.filter(
+                    user=request.user, primary=True, verified=True
                 ).exists():
                     return redirect("account_email")
         return self.get_response(request)

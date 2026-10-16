@@ -1,0 +1,17 @@
+{% load ui %}
+<div class="mb-4" data-mailbox-proof data-purpose="{{ proof_purpose }}"
+     data-request-url="{% url 'email_verification_request' %}" data-status-url="{% url 'email_verification_status' %}"
+     data-pending="{% ui '验证邮件已发送。请点击邮件中的链接确认，然后返回此页面。邮箱尚未绑定。' 'Verification sent. Confirm using the email link, then return here. The address is not bound yet.' %}"
+     data-verified="{% ui '邮箱已验证，可以继续提交。' 'Email verified. You can now submit.' %}"
+     data-bound="{% ui '邮箱已绑定。请返回邮箱列表或登录页面继续。' 'Email bound. Return to the email list or sign-in page to continue.' %}"
+     data-expired="{% ui '验证已取消或过期，请重新发送。' 'Verification cancelled or expired. Request another email.' %}"
+     data-failed="{% ui '请求未完成，请检查连接后重试。' 'The request did not complete. Check the connection and retry.' %}">
+  <p class="form-hint">{% ui '点击邮件链接完成验证前，邮箱不会写入账户。' 'The email is not saved to your account until verified through the email link.' %}</p>
+  <div class="d-flex flex-wrap gap-2">
+    <button type="button" class="btn btn-outline-primary" data-mailbox-send>{% ui '发送验证邮件' 'Send verification email' %}</button>
+    <button type="button" class="btn btn-link" data-mailbox-cancel hidden>{% ui '取消验证' 'Cancel verification' %}</button>
+  </div>
+  <p class="mt-3 mb-0 text-break" role="status" aria-live="polite" data-mailbox-status></p>
+  {% if proof_purpose == 'add' %}<a class="btn btn-link mt-2" href="{% url 'account_email' %}" data-mailbox-done hidden>{% ui '查看邮箱列表' 'View email addresses' %}</a>{% endif %}
+  {% if proof_purpose == 'recover' %}<a class="btn btn-primary mt-2" href="{% url 'account_email_verification_sent' %}" data-mailbox-done hidden>{% ui '验证完成，返回登录' 'Verified — return to sign in' %}</a>{% endif %}
+</div>

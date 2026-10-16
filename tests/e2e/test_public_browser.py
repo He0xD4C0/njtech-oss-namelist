@@ -21,7 +21,7 @@ def test_operator_settings_render_in_both_policy_languages(page, live_server, se
 
     SiteState.objects.update_or_create(pk=1, defaults={"activated_at": timezone.now()})
 
-    user = User.objects.create_superuser("policy-admin", "policy@example.invalid", "Browser-test-password-421")
+    user = User.objects.create_superuser('admin', "policy@example.invalid", "Browser-test-password-421")
     EmailAddress.objects.create(user=user, email=user.email, verified=True, primary=True)
     for language in ("zh-CN", "en-US"):
         PolicyDocument.objects.create(
@@ -37,13 +37,13 @@ def test_operator_settings_render_in_both_policy_languages(page, live_server, se
         expect(page.locator("article").get_by_text(email, exact=True)).to_be_visible()
     session_login(user)
     page.goto(live_server.url + "/manage/settings/")
-    name = page.get_by_label("运营主体名称 / Operator name", exact=True)
-    email = page.get_by_label("公开联系邮箱 / Public contact email", exact=True)
+    name = page.get_by_label("运营主体名称", exact=True)
+    email = page.get_by_label("公开联系邮箱", exact=True)
     expect(name).to_be_visible()
     expect(email).to_be_visible()
     name.fill("开源社区 [test](https://example.org)")
     email.fill("help@example.org")
-    page.locator("#documents").get_by_role("button", name="保存 / Save", exact=True).click()
+    page.locator("#documents").get_by_role("button", name="保存", exact=True).click()
     expect(name).to_have_value("开源社区 [test](https://example.org)")
     expect(email).to_have_value("help@example.org")
     for language in ("zh-CN", "en-US"):
@@ -56,7 +56,7 @@ def test_operator_settings_render_in_both_policy_languages(page, live_server, se
     page.goto(live_server.url + "/manage/settings/")
     name.fill("")
     email.fill("")
-    page.locator("#documents").get_by_role("button", name="保存 / Save", exact=True).click()
+    page.locator("#documents").get_by_role("button", name="保存", exact=True).click()
     page.goto(live_server.url + "/policies/terms/?language=zh-CN")
     expect(page.locator("article").get_by_text("本站运营者", exact=True)).to_be_visible()
     expect(page.locator("article").get_by_text("联系邮箱未设置", exact=True)).to_be_visible()
@@ -69,14 +69,14 @@ def test_backup_frequency_save_does_not_enable_unconfigured_backup(page, live_se
     monkeypatch.setenv("SITE_ENVIRONMENT", "staging")
     monkeypatch.setenv("BACKUP_ENABLED", "1")
     monkeypatch.setenv("BACKUP_S3_BUCKET", "")
-    user = User.objects.create_superuser("backup-admin", "backup@example.invalid", "Browser-test-password-421")
+    user = User.objects.create_superuser('admin', "backup@example.invalid", "Browser-test-password-421")
     EmailAddress.objects.create(user=user, email=user.email, verified=True, primary=True)
     session_login(user)
     page.goto(live_server.url + "/manage/settings/")
-    expect(page.get_by_text("仅在服务器独立备份 S3 配置就绪后生效", exact=False)).to_be_visible()
-    page.get_by_label("恢复演练频率 / Restore drill frequency").select_option("quarterly")
-    page.locator("#operations").get_by_role("button", name="保存 / Save", exact=True).click()
-    expect(page.get_by_label("恢复演练频率 / Restore drill frequency")).to_have_value("quarterly")
+    expect(page.get_by_text("需要服务器的独立备份配置先就绪", exact=False)).to_be_visible()
+    page.get_by_label("恢复演练频率").select_option("quarterly")
+    page.locator("#operations").get_by_role("button", name="保存", exact=True).click()
+    expect(page.get_by_label("恢复演练频率")).to_have_value("quarterly")
     assert get_setting("restore_schedule") == "quarterly"
     with patch("core.tasks.subprocess.run") as run, patch("core.tasks.record_failure") as failure:
         assert restore_drill() == "not-configured"
@@ -265,7 +265,7 @@ def test_real_admin_popup_and_server_markdown_editor(page, live_server, session_
     assert page.locator(".editor-preview script").count() == 0
 
 
-def test_registration_verification_and_password_login_browser(page, live_server, external_services_test_only):
+def test_registration_verification_and_password_login_browser(page, browser, live_server, external_services_test_only):
     page.goto(live_server.url + "/accounts/signup/")
     expect(page.locator(".cf-turnstile")).to_have_attribute("data-sitekey", "test-only-sitekey")
     page.get_by_label("政策阅读语言 / Policy language").select_option("en-US")
@@ -275,16 +275,26 @@ def test_registration_verification_and_password_login_browser(page, live_server,
     page.locator("#id_password1").fill("Local-browser-safe-password-419")
     page.locator("#id_password2").fill("Local-browser-safe-password-419")
     page.locator("#id_accept_policies").check()
-    page.get_by_role("button", name="创建账号并验证邮箱").click()
-    expect(page.get_by_role("heading", name="请验证你的邮箱")).to_be_visible()
+    page.get_by_role("button", name="发送验证邮件", exact=True).click()
+    expect(page.locator('[data-mailbox-status]')).to_contain_text("验证邮件已发送")
+    assert not User.objects.filter(username="new-user").exists()
+    content = mail.outbox[-1].body
+    link = re.search(r"https?://[^\s]+/accounts/confirm-email/[^\s]+", content).group(0)
+    device = browser.new_context()
+    confirmation = device.new_page()
+    confirmation.goto(live_server.url + urlsplit(link).path)
+    confirmation.get_by_role("button", name="确认此邮箱").click()
+    expect(confirmation.get_by_role('status')).to_contain_text('邮箱已确认')
+    device.close()
+    expect(page.locator('[data-mailbox-status]')).to_contain_text("邮箱已验证", timeout=10000)
+    assert not User.objects.filter(username="new-user").exists()
+    page.get_by_role("button", name="创建账号", exact=True).click()
+    expect(page).to_have_url(re.compile(r"/account/profile/$"))
     user = User.objects.get(username="new-user")
     assert user.has_usable_password()
     assert PolicyConsent.objects.get(user=user).language == "en-US"
-    content = mail.outbox[-1].body
-    link = re.search(r"https?://[^\s]+/accounts/confirm-email/[^\s]+", content).group(0)
-    page.goto(live_server.url + urlsplit(link).path)
-    page.get_by_role("button", name="确认此邮箱").click()
     assert EmailAddress.objects.get(user=user).verified
+    page.get_by_role("button", name="退出登录", exact=True).click()
     page.goto(live_server.url + "/accounts/login/")
     page.locator("#id_login").fill("new-user@example.com")
     page.locator("#id_password").fill("Local-browser-safe-password-419")
@@ -294,3 +304,46 @@ def test_registration_verification_and_password_login_browser(page, live_server,
     expect(page.get_by_role("link", name="查看我的公开主页", exact=True)).to_be_visible()
     page.get_by_role("button", name="退出登录", exact=True).click()
     expect(page.get_by_role("link", name="登录", exact=True)).to_be_visible()
+
+
+def test_multiple_mailboxes_visible_in_both_languages(page, browser, live_server, external_services_test_only, session_login, artifact_dir):
+    user = User.objects.create_user('mailbox-user', email='first@example.test', password='Mailbox-test-password-41!')
+    EmailAddress.objects.create(user=user, email=user.email, verified=True, primary=True)
+    session_login(user)
+    page.goto(live_server.url + '/accounts/email/')
+    expect(page.get_by_role('button', name='解绑', exact=True)).to_have_count(0)
+    page.get_by_label('新邮箱', exact=True).fill('second@example.test')
+    page.get_by_role('button', name='发送验证邮件', exact=True).click()
+    expect(page.locator('[data-mailbox-status]')).to_contain_text('验证邮件已发送')
+    assert EmailAddress.objects.filter(user=user).count() == 1
+    link = re.search(r'/accounts/confirm-email/[^\s]+/', mail.outbox[-1].body).group(0)
+    device = browser.new_context()
+    confirm = device.new_page()
+    confirm.goto(live_server.url + link)
+    expect(confirm.get_by_text('@mailbox-user', exact=True)).to_be_visible()
+    confirm.get_by_role('button', name='确认此邮箱').click()
+    device.close()
+    expect(page.locator('[data-mailbox-status]')).to_contain_text('邮箱已绑定', timeout=10000)
+    page.get_by_role('link', name='查看邮箱列表', exact=True).click()
+    expect(page.get_by_role('button', name='设为默认', exact=True)).to_be_visible()
+    page.get_by_role('button', name='设为默认', exact=True).click()
+    user.refresh_from_db()
+    assert user.email == 'second@example.test'
+    for language in ('zh-hans', 'en'):
+        page.context.add_cookies([{'name': 'django_language', 'value': language, 'url': live_server.url}])
+        page.reload()
+        for width in (390, 1440):
+            page.set_viewport_size({'width': width, 'height': 950})
+            expect(page.get_by_role('button', name='Send verification email' if language == 'en' else '发送验证邮件', exact=True)).to_be_visible()
+            assert page.evaluate('document.documentElement.scrollWidth <= innerWidth')
+            page.screenshot(path=str(artifact_dir / f'mailboxes-{language}-{width}.png'), full_page=True)
+    page.get_by_role('button', name='Remove', exact=True).click()
+    expect(page.get_by_role('button', name='Remove', exact=True)).to_have_count(0)
+    assert EmailAddress.objects.filter(user=user).count() == 1
+    page.goto(live_server.url + '/account/profile/')
+    expect(page.locator('#id_username')).to_be_disabled()
+    page.locator('#id_public_email').check()
+    page.get_by_role('button', name='Save', exact=True).click()
+    page.goto(live_server.url + '/u/mailbox-user/')
+    expect(page.get_by_text('second@example.test', exact=True)).to_be_visible()
+    expect(page.get_by_text('first@example.test', exact=True)).to_have_count(0)

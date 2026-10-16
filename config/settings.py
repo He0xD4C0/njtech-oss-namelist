@@ -1,4 +1,5 @@
 import os
+from ipaddress import ip_network
 from pathlib import Path
 
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -34,9 +35,9 @@ INSTALLED_APPS = [
     "directory",
 ]
 MIDDLEWARE = [
+    "core.middleware.ProxyHeadersMiddleware",
     "django.middleware.security.SecurityMiddleware",
     "whitenoise.middleware.WhiteNoiseMiddleware",
-    "core.middleware.ProxyHeadersMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
     "django.middleware.locale.LocaleMiddleware",
     "core.middleware.SiteInitializationMiddleware",
@@ -86,7 +87,7 @@ if os.getenv("DATABASE_SQLITE", "0") == "1":
 AUTH_USER_MODEL = "core.User"
 AUTHENTICATION_BACKENDS = [
     "django.contrib.auth.backends.ModelBackend",
-    "allauth.account.auth_backends.AuthenticationBackend",
+    "core.authentication.AuthenticationBackend",
 ]
 AUTH_PASSWORD_VALIDATORS = [
     {"NAME": "django.contrib.auth.password_validation.UserAttributeSimilarityValidator"},
@@ -95,17 +96,32 @@ AUTH_PASSWORD_VALIDATORS = [
     {"NAME": "django.contrib.auth.password_validation.NumericPasswordValidator"},
 ]
 SITE_ID = 1
-ACCOUNT_LOGIN_METHODS = {"email"}
+ACCOUNT_LOGIN_METHODS = {"username", "email"}
 ACCOUNT_SIGNUP_FIELDS = ["email*", "username*", "password1*", "password2*"]
 ACCOUNT_EMAIL_VERIFICATION = "mandatory"
 ACCOUNT_UNIQUE_EMAIL = True
 ACCOUNT_ADAPTER = "core.adapters.AccountAdapter"
-ACCOUNT_FORMS = {"signup": "core.forms.SignupForm", "login": "core.forms.LoginForm"}
+ACCOUNT_FORMS = {"signup": "core.forms.SignupForm", "login": "core.forms.LoginForm",
+                 "reset_password": "core.forms.ResetPasswordForm"}
 ACCOUNT_LOGOUT_ON_GET = False
 ACCOUNT_RATE_LIMITS = {"login": "10/m/ip", "login_failed": "5/m/ip,5/5m/key", "signup": "5/h/ip"}
 # Enable only when a controlled external entry overwrites these headers and
 # direct application access is restricted. Forwarded address chains are never trusted.
 TRUST_PROXY_HEADERS = os.getenv("TRUST_PROXY_HEADERS", "0") == "1"
+try:
+    TRUSTED_PROXY_CIDRS = tuple(
+        ip_network(value.strip())
+        for value in os.getenv("TRUSTED_PROXY_CIDRS", "").split(",")
+        if value.strip()
+    )
+except ValueError as error:
+    from django.core.exceptions import ImproperlyConfigured
+
+    raise ImproperlyConfigured("TRUSTED_PROXY_CIDRS must contain valid network CIDRs") from error
+if TRUST_PROXY_HEADERS and not TRUSTED_PROXY_CIDRS:
+    from django.core.exceptions import ImproperlyConfigured
+
+    raise ImproperlyConfigured("TRUST_PROXY_HEADERS requires explicit TRUSTED_PROXY_CIDRS")
 ALLAUTH_TRUSTED_PROXY_COUNT = 0
 ALLAUTH_TRUSTED_CLIENT_IP_HEADER = "x-real-ip" if TRUST_PROXY_HEADERS else None
 RATELIMIT_IP_META_KEY = "HTTP_X_REAL_IP" if TRUST_PROXY_HEADERS else "REMOTE_ADDR"
@@ -145,8 +161,25 @@ if STAGING_HTTP and SITE_ENVIRONMENT != "staging":
     from django.core.exceptions import ImproperlyConfigured
 
     raise ImproperlyConfigured("STAGING_HTTP is only allowed in the staging environment")
+PRIVATE_HTTP = os.getenv("PRIVATE_HTTP", "0") == "1"
+if PRIVATE_HTTP:
+    import ipaddress
+    from urllib.parse import urlsplit
+
+    from django.core.exceptions import ImproperlyConfigured
+
+    origin = urlsplit(os.getenv("SITE_BASE_URL", ""))
+    try:
+        address = ipaddress.ip_address(origin.hostname or "")
+        allowed_private = address in ipaddress.ip_network("10.0.0.0/8") or address in ipaddress.ip_network("172.16.0.0/12") or address in ipaddress.ip_network("192.168.0.0/16")
+    except ValueError:
+        allowed_private = False
+    if origin.scheme != "http" or not allowed_private:
+        raise ImproperlyConfigured("PRIVATE_HTTP requires an RFC1918 HTTP site origin")
+SESSION_COOKIE_NAME = "namelist_production_sessionid" if SITE_ENVIRONMENT == "production" else "sessionid"
+CSRF_COOKIE_NAME = "namelist_production_csrftoken" if SITE_ENVIRONMENT == "production" else "csrftoken"
 SESSION_COOKIE_HTTPONLY = True
-SESSION_COOKIE_SECURE = not (DEBUG or STAGING_HTTP)
+SESSION_COOKIE_SECURE = not (DEBUG or STAGING_HTTP or PRIVATE_HTTP)
 CSRF_COOKIE_SECURE = SESSION_COOKIE_SECURE
 SECURE_CONTENT_TYPE_NOSNIFF = True
 X_FRAME_OPTIONS = "DENY"
@@ -191,6 +224,7 @@ CELERY_TASK_EAGER_PROPAGATES = True
 CELERY_TASK_PUBLISH_RETRY = False
 CELERY_TIMEZONE = TIME_ZONE
 UNFOLD = {
+    "SITE_LOGO": "core.branding.logo_url",
     "SITE_TITLE": "南京工业大学开源软件仓库名录",
     "SITE_HEADER": "开源软件仓库名录",
     "SHOW_LANGUAGES": True,

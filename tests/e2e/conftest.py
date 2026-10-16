@@ -20,6 +20,11 @@ def browser(monkeypatch):
     with sync_playwright() as playwright:
         instance = playwright.chromium.launch(headless=True, executable_path=executable or None)
         yield instance
+        # Close ORM connections in Playwright's active async context before it
+        # exits; otherwise PostgreSQL test database teardown can retain one.
+        from django.db import connections
+
+        connections.close_all()
         instance.close()
 
 
@@ -78,6 +83,7 @@ def external_services_test_only(monkeypatch):
     from core.runtime import set_setting
 
     monkeypatch.setattr("core.forms.verify_turnstile", lambda request: None)
+    monkeypatch.setattr("core.turnstile.verify_turnstile", lambda request: None)
     SiteState.objects.update_or_create(pk=1, defaults={"activated_at": timezone.now()})
     for key, value in (
         ("smtp_host", "local.invalid"),

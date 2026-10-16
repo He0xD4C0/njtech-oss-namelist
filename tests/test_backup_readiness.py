@@ -22,7 +22,7 @@ def test_gui_frequency_cannot_bypass_unconfigured_backup(schedule, monkeypatch):
     assert form.is_valid(), form.errors
     save_configuration(form)
     assert get_setting("restore_schedule") == schedule
-    assert "仅在服务器独立备份 S3 配置就绪后生效" in str(form)
+    assert "需要服务器的独立备份配置先就绪" in str(form)
     with (
         patch("core.tasks.subprocess.run") as run,
         patch("core.tasks.record_failure") as failure,

@@ -1,1 +1,9 @@
-{% extends 'base.html' %}{% load ui %}{% block content %}<section class="account-shell card"><div class="card-body"><h1>{% ui '请验证你的邮箱' 'Verify your email' %}</h1><p>{% ui '验证邮件已发送，请点击邮件中的链接完成验证。如未收到，请检查垃圾邮件文件夹。' 'A verification email has been sent. Follow its link to verify your address. Check your spam folder if it has not arrived.' %}</p><a href="{% url 'account_email' %}">{% ui '管理邮箱或重新发送' 'Manage email or resend' %}</a></div></section>{% endblock %}
+{% extends 'base.html' %}{% load ui %}
+{% block content %}<section class="account-shell card"><div class="card-body">
+<h1>{% ui '请验证你的邮箱' 'Verify your email' %}</h1>
+<p>@{{ recovery_user.username }} · {% ui '账户尚无已验证邮箱。验证后才能进入站点；用户名和原有资料会保留。' 'Your account needs a verified email before you can use the site. Your username and existing data are retained.' %}</p>
+<form onsubmit="return false">{% csrf_token %}
+<label class="form-label" for="recovery-email">{% ui '邮箱' 'Email' %}</label><input id="recovery-email" class="form-control mb-3" name="email" type="email" required autocomplete="email">
+{% include 'account/mailbox_proof.html' with proof_purpose='recover' %}
+</form><a href="{% url 'account_email_verification_sent' %}?cancel=1">{% ui '返回登录' 'Back to sign in' %}</a>
+</div></section>{% endblock %}

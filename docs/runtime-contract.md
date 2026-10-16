@@ -23,7 +23,11 @@ CI 仅由 `dev-*` 标签触发，先拉取远端 `main` 并验证标签提交属
 
 服务器密钥：`DJANGO_SECRET_KEY`、`APP_ENCRYPTION_KEY`、`BOOTSTRAP_SECRET`、`POSTGRES_PASSWORD`。`scripts/entrypoint.sh` 支持对应 `_FILE` 路径，把其内容仅注入子进程；同时给出明文变量与文件会拒绝启动，不输出内容。
 
-`TRUST_PROXY_HEADERS` 默认 `0`：不信任转发协议及地址头。仅在受控外部入口覆盖 `X-Forwarded-Proto`、`X-Real-IP` 且限制应用直连时设为 `1`。启用后使用转发协议和单个有效 IP，缺失 IP 使用连接地址，非法 IP 或链返回 400；`X-Forwarded-For` 始终不作为身份来源。`APP_PORT` 只控制回环宿主端口，Web 容器固定 8000；手动预发布 18000、生产 28000，本地开发 18000。数据库与 Redis 不发布宿主端口。
+`TRUST_PROXY_HEADERS` 默认 `0`。启用时必须同时配置非空、有效的 `TRUSTED_PROXY_CIDRS`（逗号分隔），否则拒绝启动；旧部署升级前须补充此变量。根据实际连接 `REMOTE_ADDR` 匹配网段，绝不根据转发头判断来源。可信代理必须覆盖 `X-Forwarded-Proto`（单个 `http` / `https`）与 `X-Real-IP`（单个有效 IP）；非法值返回 400，缺失时使用实际连接信息。非可信来源的这两个头不生效；`X-Forwarded-For` 始终不作为身份来源。处理发生在 SecurityMiddleware 和 WhiteNoise 之前，账号和限流共用同一地址。Gunicorn 不自行解释代理头。
+
+`APP_BIND_HOST` 默认 `127.0.0.1`；另一台机器反代时，可显式绑定 RFC1918 地址。`APP_PORT` 控制唯一宿主 HTTP 端口，Web 容器固定 8000；预发布 18000、生产 28000。禁止未指定地址、全接口地址和公网地址，数据库与 Redis 不发布宿主端口。可信网段是代理头信任范围，不是网络防火墙规则。
+
+生产使用 `APP_BIND_HOST=10.126.126.4`、`APP_PORT=28000`、`TRUST_PROXY_HEADERS=1`、`TRUSTED_PROXY_CIDRS=10.0.0.0/8`。公开地址为 `https://njtech.oss.best`，`DJANGO_ALLOWED_HOSTS=njtech.oss.best`，`CSRF_TRUSTED_ORIGINS=https://njtech.oss.best`，Django Site 同步为该域名。`PRIVATE_HTTP=0`、`STAGING_HTTP=0`，会话与 CSRF Cookie 保持 Secure。上游 HTTP 与公开 HTTPS 地址分别配置，不启用本机生产 Nginx；现有预发布 Nginx 保留。
 
 `STAGING_HTTP` 默认 `0`，DEBUG=0 时会话与 CSRF Cookie 均要求 HTTPS。隔离内网 HTTP 预发布可显式启用 `STAGING_HTTP=1`，仅允许 `SITE_ENVIRONMENT=staging`；其他环境启动时报错，Compose 校验也拒绝生产启用。该开关不关闭 CSRF、登录校验或初始化门槛，不改变监听地址，也不自动配置代理。
 
@@ -56,3 +60,31 @@ Gunicorn 访问日志只记录连接 IP、方法、状态和耗时，不记录 U
 验证包括 PG 元数据、恢复一致性、必要应用表与迁移、所有现有加密运行时配置解密、PG 页校验和。至少一个加密配置必须存在，才能声称恢复密钥有效；初始空站点不假装完成此项证明。恢复直接用 psycopg 只读 SQL，不初始化 Django/业务任务/邮件。
 
 脚本成功返回简短 JSON，不返回解密值。失败只返回错误类别，任务结果中不保存潜在带凭据的 SQL或命令输出。应用任务失败通知走已有 `operations_emails` 和加密 SMTP 配置；数据库/整机故障时应有站外监控，数据库内的 SMTP 设置不能保证在数据库失联时发信。
+
+## 显式内网HTTP生产入口
+
+`PRIVATE_HTTP=1` 仅接受 `SITE_BASE_URL` 为 RFC1918 私有IP的HTTP来源，默认关闭。它只调整会话和CSRF Cookie的Secure属性，不关闭CSRF、初始化或权限校验。入口须限制内网访问，应用可绑定回环或明确的 RFC1918 地址。生产使用 `namelist_production_sessionid` 和 `namelist_production_csrftoken`，避免与同IP不同端口的预发布Cookie冲突。`STAGING_HTTP` 仍只适用于预发布；HTTPS生产保持两个开关为0。
+
+`BACKUP_CONFIG_MODE=application` 使备份成为GUI可选配置；`server` 保留原有服务器文件配置及生产门槛。未配置备份时仍允许进入向导和激活，但界面必须显示未保护状态。
+
+
+## 外部 Nginx 对接片段
+
+由运营者在另一台机器已配置 `njtech.oss.best` 证书的 HTTPS server 中加入：
+
+```nginx
+server_name njtech.oss.best;
+client_max_body_size 6m;
+
+location / {
+    proxy_pass http://10.126.126.4:28000;
+    proxy_set_header Host njtech.oss.best;
+    proxy_set_header X-Real-IP $remote_addr;
+    proxy_set_header X-Forwarded-Proto $scheme;
+    proxy_set_header X-Forwarded-For "";
+    proxy_connect_timeout 10s;
+    proxy_read_timeout 120s;
+}
+```
+
+Nginx 到应用的实际源 IP 须属于 `10.0.0.0/8`；`10.126.0.0/16` 已被包含，无需重复配置。这个范围中的机器均可声明客户端 IP 和协议。用户应通过公开 HTTPS 域名完成初始化；IP HTTP 上游仅用于反代和诊断，不是另一个用户站点。外部 DNS、证书及浏览器链路需在反代配置完成后单独验收。

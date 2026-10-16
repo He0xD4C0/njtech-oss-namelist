@@ -7,12 +7,15 @@ x-logging: &logging
 x-app-environment: &app-environment
   SITE_ENVIRONMENT: ${SITE_ENVIRONMENT:-staging}
   STAGING_HTTP: ${STAGING_HTTP:-0}
+  PRIVATE_HTTP: ${PRIVATE_HTTP:-0}
+  BACKUP_CONFIG_MODE: ${BACKUP_CONFIG_MODE:-server}
   DJANGO_DEBUG: ${DJANGO_DEBUG:-0}
   DJANGO_ALLOWED_HOSTS: ${DJANGO_ALLOWED_HOSTS:-localhost,127.0.0.1}
   CSRF_TRUSTED_ORIGINS: ${CSRF_TRUSTED_ORIGINS:-}
   SITE_BASE_URL: ${SITE_BASE_URL:-http://localhost:8000}
   SOURCE_REPOSITORY_URL: ${SOURCE_REPOSITORY_URL:-}
   TRUST_PROXY_HEADERS: ${TRUST_PROXY_HEADERS:-0}
+  TRUSTED_PROXY_CIDRS: ${TRUSTED_PROXY_CIDRS:-}
   DJANGO_SECRET_KEY_FILE: /run/secrets/django_secret
   APP_ENCRYPTION_KEY_FILE: /run/secrets/app_encryption_key
   BOOTSTRAP_SECRET_FILE: /run/secrets/bootstrap_secret
@@ -27,6 +30,7 @@ x-app-environment: &app-environment
 
 x-backup-environment: &backup-environment
   SITE_ENVIRONMENT: ${SITE_ENVIRONMENT:-staging}
+  BACKUP_CONFIG_MODE: ${BACKUP_CONFIG_MODE:-server}
   BACKUP_ENABLED: ${BACKUP_ENABLED:-1}
   BACKUP_REPO_TYPE: ${BACKUP_REPO_TYPE:-s3}
   BACKUP_REPO_PATH: ${BACKUP_REPO_PATH:-/namelist/staging}
@@ -86,6 +90,7 @@ services:
     secrets: [db_admin_password, db_password]
     volumes:
       - database:/var/lib/postgresql/data
+      - backup_config:/var/lib/namelist-backup:ro
       - pg_socket:/var/run/postgresql
       - backup_spool:/var/spool/pgbackrest
       - local_backups:/var/lib/pgbackrest
@@ -132,7 +137,7 @@ services:
 
   web:
     <<: *app
-    ports: ['127.0.0.1:${APP_PORT:-8000}:8000']
+    ports: ['${APP_BIND_HOST:-127.0.0.1}:${APP_PORT:-8000}:8000']
     healthcheck:
       test: [CMD, /app/scripts/entrypoint.sh, python, /app/deploy/healthcheck.py]
       interval: 30s
@@ -175,6 +180,7 @@ services:
       WORK_ROOT: /var/lib/restore/work
     secrets: [django_secret, app_encryption_key, bootstrap_secret, db_password]
     volumes:
+      - backup_config:/var/lib/namelist-backup
       - database:/var/lib/postgresql/data:ro
       - pg_socket:/var/run/postgresql
       - backup_spool:/var/spool/pgbackrest
@@ -197,6 +203,7 @@ networks:
 
 volumes:
   database: {}
+  backup_config: {}
   redis_data: {}
   work: {}
   scanner_cache: {}

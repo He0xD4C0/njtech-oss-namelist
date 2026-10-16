@@ -10,6 +10,8 @@ from .settings import *  # noqa: F403
 DEBUG = True
 APP_ENCRYPTION_KEY = urlsafe_b64encode(b"0" * 32).decode()
 BOOTSTRAP_SECRET = "local-test-bootstrap-secret"
+SESSION_COOKIE_NAME = "sessionid"
+CSRF_COOKIE_NAME = "csrftoken"
 SESSION_COOKIE_SECURE = False
 CSRF_COOKIE_SECURE = False
 EMAIL_BACKEND = "django.core.mail.backends.locmem.EmailBackend"

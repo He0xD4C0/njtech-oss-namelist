@@ -11,6 +11,17 @@ os.environ.setdefault("BOOTSTRAP_SECRET", "local-test-bootstrap-secret")
 os.environ.setdefault("DJANGO_SETTINGS_MODULE", "config.test_settings")
 
 
+@pytest.fixture(autouse=True)
+def isolated_cache():
+    # Rate limits and readiness reports must not leak between independent tests.
+    # Limits remain enabled and are exercised normally within each test.
+    from django.core.cache import cache
+
+    cache.clear()
+    yield
+    cache.clear()
+
+
 @pytest.fixture
 def initialized_site(db):
     """Business tests run against an explicitly activated installation."""

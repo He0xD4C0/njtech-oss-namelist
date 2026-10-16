@@ -15,6 +15,8 @@ def public_claim():
     user = User.objects.create_user(
         "alice", email="secret-alice@example.com", password="LocalTesting-password-42"
     )
+    from allauth.account.models import EmailAddress
+    EmailAddress.objects.create(user=user, email=user.email, primary=True, verified=True)
     now = timezone.now()
     repository = Repository.objects.create(
         platform="github",
@@ -138,12 +140,15 @@ def test_removed_deleted_inactive_and_released_username(client, public_claim):
     public_claim.status = "removed"
     public_claim.save()
     assert b"alice/toolkit" not in client.get("/repositories/?history=1").content
+    from django.core.exceptions import ValidationError
     public_claim.user.username = "alice-new"
-    public_claim.user.save()
-    assert client.get("/u/alice/").status_code == 404
-    assert client.get("/u/alice-new/").status_code == 200
-    public_claim.user.delete()
+    with pytest.raises(ValidationError):
+        public_claim.user.save()
+    public_claim.user.refresh_from_db()
+    assert client.get("/u/alice/").status_code == 200
     assert client.get("/u/alice-new/").status_code == 404
+    public_claim.user.delete()
+    assert client.get("/u/alice/").status_code == 404
 
 
 def test_ui_english_cookie_and_auth_readiness(client):

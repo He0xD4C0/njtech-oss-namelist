@@ -14,7 +14,7 @@
 <div class="page">
   <header class="navbar navbar-expand-lg d-print-none">
     <div class="container-xl gap-3">
-      <a href="{% if site_initializing %}{% url 'core:setup' %}{% else %}{% url 'directory:home' %}{% endif %}" class="navbar-brand m-0"><span class="avatar bg-primary text-white me-2" aria-hidden="true">N/O</span>{% ui '南工开源' 'NJTech OSS' %}</a>
+      <a href="{% if site_initializing %}{% url 'core:setup' %}{% else %}{% url 'directory:home' %}{% endif %}" class="navbar-brand m-0"><img data-brand-logo {% if brand_logo_url %}src="{{ brand_logo_url }}"{% endif %} alt="" width="40" height="40" style="object-fit:contain" class="me-2" {% if not brand_logo_url %}hidden{% endif %}><span data-brand-default class="avatar bg-primary text-white me-2" aria-hidden="true" {% if brand_logo_url %}hidden{% endif %}>N/O</span>{% ui '南工开源' 'NJTech OSS' %}</a>
       {% if not site_initializing %}<button class="navbar-toggler ms-auto" type="button" data-bs-toggle="collapse" data-bs-target="#site-navigation" aria-controls="site-navigation" aria-expanded="false" aria-label="{% ui '展开主导航' 'Toggle navigation' %}"><span class="navbar-toggler-icon"></span></button>{% endif %}
       <div class="site-tools d-flex align-items-center gap-2 ms-lg-auto order-lg-last">
         {% include 'ui/preferences.html' %}
@@ -28,7 +28,7 @@
     </div>
   </header>
   <main id="main" class="page-wrapper" tabindex="-1"><div class="page-body"><div class="container-xl">
-    {% if messages %}<div aria-live="polite">{% for message in messages %}<div role="status" class="alert {% if message.tags == 'error' %}alert-danger{% elif message.tags == 'success' %}alert-success{% else %}alert-info{% endif %}">{{ message }}</div>{% endfor %}</div>{% endif %}
+    {% if messages and not site_initializing %}<div aria-live="polite">{% for message in messages %}<div role="status" class="alert {% if message.tags == 'error' %}alert-danger{% elif message.tags == 'success' %}alert-success{% else %}alert-info{% endif %}">{{ message }}</div>{% endfor %}</div>{% endif %}
     {% block content %}{% endblock %}
   </div></div></main>
   {% if not site_initializing %}<footer class="footer footer-transparent d-print-none"><div class="container-xl d-flex flex-wrap justify-content-between gap-3"><span class="text-secondary">{% ui '南京工业大学开源软件仓库名录' 'Nanjing Tech University OSS directory' %}</span><div class="d-flex flex-wrap gap-3"><a href="/policies/privacy/">{% ui '隐私政策' 'Privacy' %}</a><a href="/policies/terms/">{% ui '服务条款' 'Terms' %}</a><a href="/policies/inclusion/">{% ui '收录规则' 'Inclusion rules' %}</a><a href="{{ source_url|default:'/source/' }}">{% ui '本站源码' 'Source' %} · AGPL-3.0-only</a></div></div></footer>{% endif %}
@@ -37,5 +37,6 @@
 <script src="{% static 'vendor/tabler/tabler.min.js' %}" defer></script>
 <script src="{% static 'js/announcements.js' %}" defer></script>
 <script src="{% static 'js/policy-links.js' %}" defer></script>
+<script src="{% static 'js/mailbox-proof.js' %}" defer></script>
 {% block extra_js %}{% endblock %}
 </body></html>

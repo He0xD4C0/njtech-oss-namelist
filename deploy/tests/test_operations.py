@@ -483,6 +483,8 @@ class ComposeBoundaryTests(unittest.TestCase):
             "BACKUP_REPO_PATH": "/namelist/production",
             "SCAN_CONCURRENCY": "99",
             "APP_PORT": "9999",
+            "APP_BIND_HOST": "10.126.126.4",
+            "TRUSTED_PROXY_CIDRS": "10.0.0.0/8",
             "TRUST_PROXY_HEADERS": "1",
             "DB_MEMORY": "1m",
             "COMPOSE_FILE": "missing-compose.yaml",
@@ -656,15 +658,15 @@ class ComposeBoundaryTests(unittest.TestCase):
     def test_invalid_web_or_data_port_publication_rejected(self):
         from copy import deepcopy
 
-        for changes in ({"host_ip": "0.0.0.0"}, {"host_ip": "::"}, {"host_ip": None}, {"target": 8080}, {"protocol": "udp"}, {"published": "0"}, {"published": "65536"}, {"published": "18000-18001"}):
+        for changes in ({"host_ip": "8.8.8.8"}, {"host_ip": "169.254.1.1"}, {"host_ip": "0.0.0.0"}, {"host_ip": "::"}, {"host_ip": None}, {"target": 8080}, {"protocol": "udp"}, {"published": "0"}, {"published": "65536"}, {"published": "18000-18001"}):
             wrong = deepcopy(self.document)
             wrong["services"]["web"]["ports"][0].update(changes)
-            with self.subTest(changes=changes), self.assertRaisesRegex(ValueError, "loopback port targeting 8000"):
+            with self.subTest(changes=changes), self.assertRaisesRegex(ValueError, "loopback or RFC1918 address targeting 8000"):
                 runtime.validate(wrong, "staging")
         for ports in ([], self.document["services"]["web"]["ports"] * 2):
             wrong = deepcopy(self.document)
             wrong["services"]["web"]["ports"] = ports
-            with self.assertRaisesRegex(ValueError, "exactly one loopback"):
+            with self.assertRaisesRegex(ValueError, "exactly one HTTP"):
                 runtime.validate(wrong, "staging")
         for name in ("db", "redis", "worker", "scanner", "beat", "maintenance", "initialize"):
             wrong = deepcopy(self.document)
@@ -673,8 +675,22 @@ class ComposeBoundaryTests(unittest.TestCase):
                 runtime.validate(wrong, "staging")
         wrong = deepcopy(self.document)
         wrong["services"]["web"]["network_mode"] = "host"
-        with self.assertRaisesRegex(ValueError, "loopback port targeting 8000"):
+        with self.assertRaisesRegex(ValueError, "loopback or RFC1918 address targeting 8000"):
             runtime.validate(wrong, "staging")
+
+    def test_explicit_private_web_bind_and_trusted_networks(self):
+        from copy import deepcopy
+
+        for host in ("10.126.126.4", "172.16.1.2", "192.168.1.2", "::1"):
+            document = deepcopy(self.document)
+            document["services"]["web"]["ports"][0]["host_ip"] = host
+            values = document["services"]["web"]["environment"]
+            values.update(TRUST_PROXY_HEADERS="1", TRUSTED_PROXY_CIDRS="10.0.0.0/8")
+            runtime.validate(document, "staging")
+        for networks in ("", "invalid", "10.1.1.1/8"):
+            values["TRUSTED_PROXY_CIDRS"] = networks
+            with self.assertRaises(ValueError):
+                runtime.validate(document, "staging")
 
     def test_access_logs_do_not_capture_credentials_in_urls(self):
         dockerfile = (ROOT / "Dockerfile").read_text()

@@ -67,10 +67,10 @@ USER app
 CMD ["python", "-m", "pytest", "-p", "no:cacheprovider", "-m", "scancode", "tests/test_licensecheck.py", "tests/test_ingestion.py"]
 
 FROM ${POSTGRES_IMAGE} AS postgres
-RUN apt-get -o Acquire::Retries=3 update && apt-get -o Acquire::Retries=3 install -y --no-install-recommends pgbackrest python3 \
+RUN apt-get -o Acquire::Retries=3 update && apt-get -o Acquire::Retries=3 install -y --no-install-recommends pgbackrest python3 ca-certificates \
     && rm -rf /var/lib/apt/lists/* \
-    && mkdir -p /etc/pgbackrest /var/log/pgbackrest /var/spool/pgbackrest /var/lib/restore /app/deploy/backup \
-    && chown -R postgres:postgres /etc/pgbackrest /var/log/pgbackrest /var/spool/pgbackrest /var/lib/restore
+    && mkdir -p /etc/pgbackrest /var/log/pgbackrest /var/spool/pgbackrest /var/lib/restore /var/lib/namelist-backup /app/deploy/backup \
+    && chown -R postgres:postgres /etc/pgbackrest /var/log/pgbackrest /var/spool/pgbackrest /var/lib/restore /var/lib/namelist-backup
 COPY deploy/backup /app/deploy/backup
 COPY deploy/postgres/init-app-role.sh /docker-entrypoint-initdb.d/10-app-role.sh
 COPY deploy/postgres/init-backup-stanza.sh /docker-entrypoint-initdb.d/20-backup-stanza.sh

@@ -1,4 +1,7 @@
+import uuid
+
 from django.contrib.auth.models import AbstractUser
+from django.core.exceptions import ValidationError
 from django.core.validators import RegexValidator
 from django.db import models
 
@@ -7,7 +10,8 @@ username_validator = RegexValidator(r"^[a-z0-9_-]{3,32}$", "使用 3–32 位小
 
 class User(AbstractUser):
     username = models.CharField(max_length=32, unique=True, validators=[username_validator])
-    email = models.EmailField(unique=True)
+    # Compatibility copy of the verified primary EmailAddress, never an identity.
+    email = models.EmailField(blank=True)
     full_name = models.CharField(max_length=150, blank=True)
     public_email = models.BooleanField(default=False)
     language = models.CharField(
@@ -25,13 +29,34 @@ class User(AbstractUser):
     def get_full_name(self):
         return self.full_name or self.username
 
+    @property
+    def default_email(self):
+        return self.emailaddress_set.filter(primary=True, verified=True).values_list("email", flat=True).first() or ""
+
     def save(self, *args, **kwargs):
+        if self.pk:
+            original = type(self).objects.filter(pk=self.pk).values("username").first()
+            if original and original["username"] != self.username:
+                raise ValidationError({"username": "用户名不可修改 / Username cannot be changed"})
+        if (self.username == "admin") != bool(self.is_superuser) or (
+            self.is_superuser and (not self.is_staff or not self.is_active)
+        ):
+            raise ValidationError("唯一超管必须为有效的 admin / The only superuser must be active admin")
         self.email = self.email.lower()
         super().save(*args, **kwargs)
 
+    def delete(self, *args, **kwargs):
+        if self.username == "admin":
+            raise ValidationError("不能注销超管 / The superuser cannot be deleted")
+        return super().delete(*args, **kwargs)
+
     class Meta(AbstractUser.Meta):
         constraints = [
-            models.UniqueConstraint(models.functions.Lower("email"), name="unique_normalized_user_email")
+            models.CheckConstraint(
+                condition=(models.Q(username="admin", is_superuser=True, is_staff=True, is_active=True)
+                           | (~models.Q(username="admin") & models.Q(is_superuser=False))),
+                name="fixed_admin_identity",
+            ),
         ]
 
 
@@ -83,6 +108,8 @@ class SyncRun(models.Model):
     source_sha = models.CharField(max_length=64, blank=True)
     message = models.TextField(blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
+    execution_token = models.UUIDField(null=True, blank=True, editable=False)
+    lease_expires_at = models.DateTimeField(null=True, blank=True, editable=False)
 
 
 class SourceSyncState(models.Model):
@@ -93,3 +120,13 @@ class SourceSyncState(models.Model):
 class PendingAvatarDeletion(models.Model):
     key = models.CharField(max_length=300, unique=True)
     created_at = models.DateTimeField(auto_now_add=True)
+
+
+class BackupConfiguration(models.Model):
+    """One encrypted candidate; independent files remain authoritative for active backups."""
+    id = models.PositiveSmallIntegerField(primary_key=True, default=1, editable=False)
+    revision = models.UUIDField(default=uuid.uuid4, editable=False)
+    values = models.JSONField(default=dict)
+    tested_revision = models.UUIDField(null=True, editable=False)
+    applied_revision = models.UUIDField(null=True, editable=False)
+    location = models.JSONField(default=dict)

@@ -72,6 +72,7 @@ def validate_database(socket_directory):
                 "core_user",
                 "core_runtimesetting",
                 "core_pendingavatardeletion",
+                "core_backupconfiguration",
                 "repositories_repository",
                 "repositories_submission",
                 "repositories_auditdispatch",
@@ -87,6 +88,12 @@ def validate_database(socket_directory):
                 raise RuntimeError("No encrypted setting exists to prove recovery-key compatibility")
             for (value,) in secrets:
                 cipher.decrypt(value.encode())
+            cursor.execute('SELECT "values" FROM core_backupconfiguration')
+            backup_configs = cursor.fetchall()
+            for (values,) in backup_configs:
+                for key in ("access_key", "secret_key"):
+                    if values.get(key):
+                        cipher.decrypt(values[key].encode())
             return {"migrations": migration_count, "encrypted_settings": len(secrets)}
 
 

@@ -10,6 +10,14 @@ from .oauth_views import social_login_from_profile
 
 
 class MinimalScopeMixin:
+    def extract_common_fields(self, data):
+        fields = super().extract_common_fields(data)
+        fields.pop("email", None)
+        return fields
+
+    def extract_email_addresses(self, data):
+        return []
+
     def get_scope_from_request(self, request):
         # Do not permit ?scope=repo/api to broaden permissions dynamically.
         return self.get_scope()

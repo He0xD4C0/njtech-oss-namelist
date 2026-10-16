@@ -1,0 +1,16 @@
+{% load ui %}
+<div data-backup-status role="status" aria-live="polite" class="my-3">
+  <p class="text-break break-words" data-backup-label>{{ backup.label }}</p>
+  <p class="text-danger text-red-600" data-backup-error>{{ backup.error }}</p>
+  <p>{% ui '最近成功备份：' 'Last successful backup: ' %}<span data-backup-success>{{ backup.last_success|default:'—' }}</span></p>
+  {% if backup.prefix %}<p class="text-break break-all">{% ui '备份目录：' 'Backup prefix: ' %}{{ backup.prefix }}</p>{% endif %}
+  <p class="text-secondary text-subtle">{% ui '启用后每天 03:15 自动备份，周日全量，其余日期差异；保留至少 30 天恢复窗口。连接测试通过不代表已有备份。' 'After enabling, backups run daily at 03:15 Asia/Shanghai: full on Sunday, differential otherwise, with at least a 30-day recovery window. A connection test is not a backup.' %}</p>
+  <p class="text-secondary text-subtle">{% ui '恢复还需要服务器独立保存的备份配置与应用加密密钥，请按运维文档站外保管。此页不会显示这些密钥。' 'Recovery also requires the independently stored backup configuration and application encryption key. Store them offsite as described in the operations guide; they are never displayed here.' %}</p>
+</div>
+{% if backup.managed %}
+<form method="post" {% if setup_backup %}data-setup-form{% endif %} class="my-3 flex flex-wrap gap-2 d-flex">
+  {% csrf_token %}{% if setup_backup %}<input type="hidden" name="step" value="operations"><input type="hidden" name="task" value="backup">{% endif %}
+  <button type="submit" name="action" value="backup-apply" data-backup-apply class="btn btn-outline-primary border rounded-default px-3 py-2" {% if not backup.tested or backup.busy %}disabled{% endif %}>{% if backup.enabled %}{% ui '应用已测试的凭据并备份' 'Apply tested credentials and back up' %}{% else %}{% ui '启用自动备份' 'Enable automatic backups' %}{% endif %}</button>
+  <button type="submit" name="action" value="backup-backup" data-backup-now class="btn btn-outline-primary border rounded-default px-3 py-2" {% if not backup.enabled or backup.busy %}disabled{% endif %}>{% ui '立即执行全量备份' 'Back up now (full)' %}</button>
+</form>
+{% else %}<p>{% ui '当前使用服务器配置管理模式。请在部署配置中启用应用管理模式后使用此表单。' 'Server-managed configuration is active. Enable application-managed backups in the deployment configuration to use this form.' %}</p>{% endif %}

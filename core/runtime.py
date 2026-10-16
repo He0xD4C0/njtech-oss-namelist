@@ -2,7 +2,7 @@ from django.core.cache import cache
 from django.db import transaction
 
 from .crypto import decrypt, encrypt
-from .models import AuditEvent, PolicyDocument, RuntimeSetting, SiteState
+from .models import AuditEvent, PolicyDocument, RuntimeSetting, SiteState, SourceSyncState, SyncRun
 
 SECRET_KEYS = {
     "smtp_password",
@@ -16,6 +16,8 @@ SECRET_KEYS = {
     "policy_webhook_secret",
 }
 SETTING_KEYS = {
+    "site_logo_data",
+    "site_logo_revision",
     "operator_name",
     "operator_contact_email",
     "smtp_host",
@@ -52,6 +54,7 @@ def get_setting(key, default=""):
 def set_setting(key, value, secret=False, user=None):
     if key not in SETTING_KEYS:
         raise ValueError("Unsupported runtime setting")
+    source_changed = key in {"policy_source_url", "license_source_url"} and get_setting(key) != str(value)
     secret = key in SECRET_KEYS or secret
     RuntimeSetting.objects.update_or_create(
         key=key,
@@ -65,6 +68,16 @@ def set_setting(key, value, secret=False, user=None):
         RuntimeSetting.objects.filter(key="smtp_verified").delete()
     if key.startswith("s3_") and key != "s3_verified":
         RuntimeSetting.objects.filter(key="s3_verified").delete()
+    if source_changed:
+        kind = "documents" if key == "policy_source_url" else "licenses"
+        state, _ = SourceSyncState.objects.get_or_create(kind=kind)
+        state = SourceSyncState.objects.select_for_update().get(pk=state.pk)
+        state.generation += 1
+        state.save(update_fields=["generation"])
+        SyncRun.objects.filter(kind=kind, status__in=("queued", "running", "retrying")).update(
+            status="superseded", execution_token=None, lease_expires_at=None,
+        )
+        SyncRun.objects.create(kind=kind, status="pending")
     AuditEvent.objects.create(actor=user, action="setting.updated", subject=key)
     cache.delete("avatar-storage-health")
 

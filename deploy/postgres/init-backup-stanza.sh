@@ -1,5 +1,6 @@
 #!/bin/sh
 set -eu
+[ "${BACKUP_CONFIG_MODE:-server}" != application ] || exit 0
 state=0
 python3 /app/deploy/backup/readiness.py || state=$?
 if [ "$state" = 0 ]; then

@@ -10,9 +10,28 @@
 .account-shell h1 { font-size: 1.5rem; margin-bottom: 1.5rem; }
 .account-links, .social-providers { display: flex; flex-wrap: wrap; gap: 1rem; margin-top: 1.5rem; }
 .auth-divider { margin-top: 1.5rem; color: var(--tblr-secondary); }
-.setup-shell { max-width: 56rem; }
-.setup-steps { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: .5rem; }
-.setup-steps .btn { white-space: normal; }
+.setup-shell { max-width: 68rem; }
+.setup-layout { display: grid; grid-template-columns: 13rem minmax(0, 1fr); gap: 2rem; align-items: start; }
+.setup-access { max-width: 40rem; margin-inline: auto; }
+.setup-stage-nav { position: sticky; top: 1rem; }
+.setup-stage { display: flex; align-items: center; gap: .75rem; padding: .9rem .5rem; color: var(--tblr-secondary); }
+.setup-stage.active { color: var(--tblr-body-color); font-weight: 600; }
+.setup-mobile-progress { display: none; }
+.setup-shell pre { white-space: pre-wrap; overflow-wrap: anywhere; }
+.setup-shell .form-hint, .setup-shell code { overflow-wrap: anywhere; }
+.setup-shell summary { cursor: pointer; }
+@media (min-width: 768px) {
+  #smtp { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); column-gap: 1.25rem; }
+  #smtp > :not([data-field]), #smtp > [data-field="smtp_security"], #smtp > [data-field="recipient"], #smtp > [data-field="smtp_from_email"] { grid-column: 1 / -1; }
+}
+.setup-shell [hidden] { display: none !important; }
+@media (max-width: 767.98px) {
+  .setup-layout { grid-template-columns: minmax(0, 1fr); gap: .5rem; }
+  .setup-stage-nav { display: none; }
+  .setup-mobile-progress { display: block; }
+  .setup-actions { position: sticky; bottom: 0; padding-block: .75rem; background: var(--tblr-bg-surface); z-index: 2; }
+  .setup-actions .btn-primary { flex: 1 1 auto; }
+}
 .repository-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 1rem; }
 .repository-card { min-width: 0; }
 .repository-card h3, .repository-card a, .text-break { overflow-wrap: anywhere; }
@@ -36,6 +55,5 @@
 }
 @media (max-width: 767.98px) {
   .repository-grid { grid-template-columns: 1fr; }
-  .setup-steps { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .account-shell { margin: 0 auto; }
 }

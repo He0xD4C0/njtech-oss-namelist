@@ -1,0 +1,6 @@
+{% load ui %}
+<div class="mb-4" role="status">
+  <p>{% ui '当前使用的 Logo' 'Current logo' %}</p>
+  {% if brand_logo_url %}<img src="{{ brand_logo_url }}" alt="{% ui '当前站点 Logo' 'Current site logo' %}" width="96" height="96" style="object-fit:contain;max-width:100%">
+  {% else %}<span class="font-bold">N/O · NJTech OSS</span><p>{% ui '正在使用默认标识。' 'Using the default identity.' %}</p>{% endif %}
+</div>

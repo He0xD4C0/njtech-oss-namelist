@@ -1,10 +1,13 @@
 #!/bin/sh
 set -eu
+if [ "${BACKUP_CONFIG_MODE:-server}" = application ]; then
+    python -c "from deploy.backup.managed import initialize; initialize()"
+fi
 state=0
 python /app/manage.py shell -c 'from core.tasks import report_backup_readiness; report_backup_readiness()'
 python /app/deploy/backup/readiness.py || state=$?
-if [ "$state" = 0 ]; then
-    python /app/deploy/backup/render-config.py
+if [ "$state" = 0 ] || [ "${BACKUP_CONFIG_MODE:-server}" = application ]; then
+    if [ "$state" = 0 ]; then python /app/deploy/backup/render-config.py; fi
     python /app/deploy/backup/scheduler.py &
     scheduler=$!
 elif [ "$state" = 2 ]; then

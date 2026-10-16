@@ -41,10 +41,10 @@ class UserAdmin(BaseUserAdmin, ModelAdmin):
     fieldsets = (
         (None, {"fields": ("username", "password")}),
         ("资料 / Profile", {"fields": ("email", "full_name", "public_email", "language", "quota")}),
-        ("角色 / Role", {"fields": ("is_active", "is_staff", "is_superuser")}),
+        ("角色 / Role", {"fields": ("is_active", "is_staff")}),
         ("时间 / Dates", {"fields": ("last_login", "date_joined")}),
     )
-    readonly_fields = ("last_login", "date_joined")
+    readonly_fields = ("username", "email", "last_login", "date_joined")
     list_display = ("username", "email", "is_staff", "is_superuser", "quota")
 
     def has_module_permission(self, request):
@@ -62,16 +62,12 @@ class UserAdmin(BaseUserAdmin, ModelAdmin):
     def has_delete_permission(self, request, obj=None):
         return False
 
-    def save_model(self, request, obj, form, change):
-        if obj.is_superuser:
-            obj.is_staff = True
-        if change and obj.pk == request.user.pk and (not obj.is_superuser or not obj.is_active):
-            # Do not silently lock the active operator out of the only recovery role.
-            from django.core.exceptions import ValidationError
+    def get_readonly_fields(self, request, obj=None):
+        return self.readonly_fields + (("is_active", "is_staff") if obj and obj.is_superuser else ())
 
-            if not User.objects.filter(is_superuser=True, is_active=True).exclude(pk=obj.pk).exists():
-                raise ValidationError("必须保留至少一位有效超管 / Keep at least one active superadmin")
-        super().save_model(request, obj, form, change)
+    def save_model(self, request, obj, form, change):
+        # Read-only identity fields must not be written back from a stale form.
+        obj.save(update_fields=["full_name", "public_email", "language", "quota", "is_active", "is_staff"])
 
 
 class PrivateReadOnlyAdmin(ModelAdmin):

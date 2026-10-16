@@ -1,0 +1,63 @@
+{% load ui %}
+<div id="setup-flow" class="setup-shell mx-auto" data-revision="{{ revision }}" data-waiting="{{ task.waiting|yesno:'true,false' }}" data-url="{{ task.url|default:'/setup/' }}" data-busy="{% ui '正在处理，请稍候…' 'Working, please wait…' %}" data-network-error="{% ui '连接中断，操作可能已经完成。请先检查当前状态，不要重复提交。' 'Connection interrupted. The operation may have completed. Check status before submitting again.' %}" data-unsaved="{% ui '还有未保存的修改，确定离开当前任务吗？' 'You have unsaved changes. Leave this task?' %}">
+  <div class="page-header mb-4"><div class="page-pretitle">NJTECH OSS</div><h1 class="page-title">{% ui '一起完成站点初始化' 'Let’s set up your site' %}</h1><p class="text-secondary mt-2">{% ui '一次完成一件事。已保存的配置会保留，随时可以返回修改。' 'One task at a time. Saved settings are retained and can be edited later.' %}</p></div>
+  {% if messages %}<div aria-live="polite">{% for message in messages %}<div role="status" class="alert {% if message.tags == 'error' %}alert-danger{% elif message.tags == 'success' %}alert-success{% else %}alert-info{% endif %}">{{ message }}</div>{% endfor %}</div>{% endif %}
+  <div id="setup-connection-error" class="alert alert-warning" role="alert" hidden><p class="mb-2" data-error-text></p><a class="btn btn-sm" href="{{ task.url|default:'/setup/' }}" data-check-status>{% ui '检查当前状态' 'Check current status' %}</a></div>
+  {% if bootstrap_unavailable %}<div class="alert alert-danger" role="alert">{% ui '服务器尚未配置初始化密钥。请管理员设置 BOOTSTRAP_SECRET 后重试。' 'The server bootstrap secret is missing. Configure BOOTSTRAP_SECRET and retry.' %}</div>
+  {% elif not authorized %}
+    {% if email_confirmed %}<p class="alert alert-success" role="status">{% ui '邮箱已确认。继续配置仍需要服务器初始化密钥。' 'Email confirmed. The bootstrap secret is still required to configure the site.' %}</p>{% endif %}
+    {% if request.GET.confirmation == 'invalid' %}<p class="alert alert-warning" role="alert">{% ui '确认链接无效或已过期。请返回原初始化页面查看状态，必要时重发邮件。' 'The link is invalid or expired. Return to the setup page and resend if needed.' %}</p>{% endif %}
+    <section class="card setup-access"><div class="card-body p-4"><div class="text-secondary mb-2">{% ui '第 1 阶段，共 6 阶段' 'Stage 1 of 6' %}</div><h2 id="setup-task-title" class="card-title" tabindex="-1">{% ui '验证你对服务器的管理权限' 'Verify your access to this server' %}</h2><p class="text-secondary">{% ui '使用部署时配置的初始化密钥。它不是邮箱密码，也不是稍后创建的管理员密码。' 'Use the bootstrap secret configured during deployment, not your email or future administrator password.' %}</p>
+    {% if authorization_error %}<div class="alert alert-danger" role="alert">{% ui '初始化密钥不正确，请检查后重试。' 'The bootstrap secret is incorrect. Check it and retry.' %}</div>{% endif %}
+    <form method="post" data-setup-form>{% csrf_token %}<input type="hidden" name="action" value="authorize"><label class="form-label required" for="bootstrap-secret">{% ui '服务器初始化密钥' 'Server bootstrap secret' %}</label><input id="bootstrap-secret" class="form-control mb-4" type="password" name="secret" required autocomplete="off"><button class="btn btn-primary" type="submit">{% ui '验证并开始' 'Verify and begin' %}</button></form>
+    </div></section>
+  {% else %}
+  <div class="setup-layout">
+    <aside><nav class="setup-stage-nav" aria-label="{% ui '初始化阶段' 'Setup stages' %}">{% for stage in steps %}<div class="setup-stage {% if stage.key == step %}active{% endif %}" {% if stage.key == step %}aria-current="step"{% endif %}><span class="avatar avatar-sm {% if stage.key == step %}bg-primary text-white{% else %}bg-secondary-lt{% endif %}">{{ stage.number }}</span><span>{{ stage.title }}{% if stage.ready %}<small class="d-block text-secondary">{% ui '已完成' 'Complete' %}</small>{% endif %}</span></div>{% endfor %}</nav><p class="setup-mobile-progress text-secondary">{% ui '阶段' 'Stage' %} {{ step_number }} / 6 · {{ task.title }}</p></aside>
+    <div class="min-width-0">
+      {% if completed %}<details class="card mb-3"><summary class="card-body py-3">{% ui '已完成的任务' 'Completed tasks' %} · {{ completed|length }}</summary><div class="list-group list-group-flush">{% for item in completed %}<div class="list-group-item d-flex align-items-center gap-2"><span class="badge {% if item.ready %}bg-green-lt{% else %}bg-secondary-lt{% endif %}">{% if item.ready %}{% ui '已完成' 'Complete' %}{% else %}{% ui '稍后配置' 'Later' %}{% endif %}</span><div class="flex-fill min-width-0">{{ item.title }}{% if item.summary %}<small class="d-block text-secondary text-break">{{ item.summary }}</small>{% endif %}</div><a class="ms-auto flex-shrink-0" data-setup-link href="{{ item.url }}">{% ui '修改' 'Edit' %}</a></div>{% endfor %}</div></details>{% endif %}
+      <section class="card" id="setup-task"><div class="card-body p-4">
+        <div class="d-flex justify-content-between gap-2 mb-2"><span class="text-secondary">{% if task.required %}{% ui '必需任务' 'Required task' %}{% else %}{% ui '可选任务，可稍后配置' 'Optional · can be done later' %}{% endif %}</span>{% if task.ready %}<span class="badge bg-green-lt">{% ui '已完成' 'Complete' %}</span>{% endif %}</div>
+        <h2 id="setup-task-title" class="mb-2" tabindex="-1">{{ task.title }}</h2><p class="text-secondary mb-4">{{ description }}</p>
+        {% if callback_url %}<div class="alert alert-info"><p>{% ui '先在平台创建 OAuth 应用，将回调地址填写为：' 'Create an OAuth application on the platform with this callback URL:' %}</p><code class="text-break">{{ callback_url }}</code><p class="mb-0 mt-2"><a href="{{ provider_link }}" target="_blank" rel="noopener noreferrer">{% ui '打开平台应用设置' 'Open platform application settings' %}</a></p></div>{% endif %}
+        {% if task.key == 'documents' %}<details class="mb-4"><summary>{% ui '仓库应该包含哪些文件？' 'Which files should the repository contain?' %}</summary><pre class="bg-body-secondary rounded p-3 mt-2">zh-CN/privacy.md
+zh-CN/terms.md
+zh-CN/inclusion.md
+{% ui '英文可使用 en-US/ 目录；至少完整提供一种语言。' 'English uses en-US/. At least one complete language is required.' %}</pre></details>{% endif %}
+        {% if task.key == 'licenses' %}<details class="mb-4"><summary>{% ui '查看仓库目录示例' 'View repository structure' %}</summary><pre class="bg-body-secondary rounded p-3 mt-2">whitelist/MIT.txt
+blacklist/restricted-license.txt</pre><p class="form-hint">{% ui '文件中放完整许可证正文。文件名只是便于识别，不决定审核结果。' 'Files contain complete license texts. Filenames do not determine review results.' %}</p></details>{% endif %}
+        {% if task.sync_label %}<div role="status" class="alert d-block {% if task.recoverable %}alert-warning{% elif task.waiting %}alert-info{% elif task.ready %}alert-success{% else %}alert-warning{% endif %}">{% if task.waiting and not task.recoverable %}<span class="spinner-border spinner-border-sm me-2" aria-hidden="true"></span>{% endif %}{{ task.sync_label }}{% if task.waiting and not task.recoverable %}<p class="mb-0 mt-2">{% ui '状态会自动更新，你也可以离开后再回来。' 'Status updates automatically. You can leave and return later.' %}</p>{% endif %}</div>{% endif %}
+        {% if task.recoverable %}<form method="post" data-setup-form class="mb-4">{% csrf_token %}<input type="hidden" name="step" value="{{ step }}"><input type="hidden" name="task" value="{{ task.key }}"><input type="hidden" name="run_id" value="{{ task.run.pk }}"><button class="btn btn-primary" type="submit" name="action" value="recover-{{ task.key }}">{% ui '重新尝试' 'Try again' %}</button></form>{% endif %}
+        {% if form %}<form method="post" enctype="multipart/form-data" data-setup-form id="{{ task.key }}">{% csrf_token %}<input type="hidden" name="step" value="{{ step }}"><input type="hidden" name="task" value="{{ task.key }}"><input type="hidden" name="group" value="{{ task.key }}">
+          {% if task.key == 'branding' %}{% include 'core/logo_preview.html' %}{% endif %}{% include 'ui/form.html' with form=form %}
+          {% if task.key == 'smtp' %}{% include 'ui/form.html' with form=recipient_form %}{% endif %}
+          {% if task.key == 'operations' %}<div class="alert alert-info" role="status"><strong>{% ui '外部备份实际状态' 'External backup status' %}</strong><p class="mb-0 mt-2">{{ backup_status }}</p></div>{% endif %}
+          <div class="setup-actions d-flex flex-wrap gap-2 align-items-center">
+            {% if task.key == 'smtp' %}<button class="btn btn-primary" name="action" value="test-smtp" type="submit">{% ui '保存并发送测试邮件' 'Save and send test email' %}</button>
+            {% elif task.key == 'storage' %}<button class="btn btn-primary" name="action" value="test-s3" type="submit">{% ui '保存并验证存储' 'Save and test storage' %}</button>
+            {% elif task.key == 'documents' or task.key == 'licenses' %}<button class="btn {% if task.ready or task.recoverable %}btn-outline-primary{% else %}btn-primary{% endif %}" name="action" value="sync-{{ task.key }}" type="submit" {% if task.waiting %}disabled{% endif %}>{% if task.run.status == 'failed' or task.run.status == 'queue-failed' %}{% ui '保存并重试同步' 'Save and retry sync' %}{% else %}{% ui '保存并同步' 'Save and sync' %}{% endif %}</button>
+            {% elif task.key == 'branding' %}<button class="btn btn-primary" name="action" value="configure" type="submit">{% ui '上传并应用 Logo' 'Upload and apply logo' %}</button>
+            {% elif task.key == 'backup' %}<button class="btn btn-primary" name="action" value="backup-test" type="submit" {% if backup.busy or not backup.managed %}disabled{% endif %}>{% ui '保存并测试连接' 'Save and test connection' %}</button>
+            {% else %}<button class="btn btn-primary" name="action" value="configure" type="submit">{% ui '保存并继续' 'Save and continue' %}</button>{% endif %}
+            {% if task.ready and task.key != 'operations' %}<a class="btn {% if task.key == 'documents' or task.key == 'licenses' %}btn-primary{% endif %}" data-setup-link href="{{ next_url }}">{% ui '继续' 'Continue' %}</a>{% endif %}
+          </div>
+        </form>{% endif %}
+        {% if task.key == 'backup' %}{% include 'core/backup_status.html' with setup_backup=True %}{% endif %}
+        {% if task.key == 'admin' %}
+          {% if site_state.bootstrap_user_id %}<p class="alert alert-success" role="status">{% ui '已创建账号' 'Account created' %}：{{ site_state.bootstrap_user.username }} · {{ site_state.bootstrap_user.email }}</p><a class="btn btn-primary" data-setup-link href="{{ next_url }}">{% ui '继续配置安全与政策' 'Continue to security and policies' %}</a>
+          {% else %}<form method="post" data-setup-form>{% csrf_token %}<input type="hidden" name="task" value="admin"><input type="hidden" name="step" value="mail"><input type="hidden" name="action" value="account">{% include 'ui/form.html' with form=account_form %}{% include 'account/mailbox_proof.html' with proof_purpose='setup' %}<button class="btn btn-primary" type="submit">{% ui '创建超管' 'Create superuser' %}</button></form>{% endif %}
+        {% endif %}
+        {% if task.key == 'review' %}
+          <ul class="list-group list-group-flush mb-4">{% for check in checks %}<li class="list-group-item d-flex flex-wrap align-items-center gap-2"><span class="badge {% if check.ready %}bg-green-lt{% else %}bg-orange-lt{% endif %}">{% if check.ready %}{% ui '已就绪' 'Ready' %}{% else %}{% ui '待完成' 'Incomplete' %}{% endif %}</span>{{ check.label }}<a class="ms-auto" data-setup-link href="/setup/?step={{ check.step }}&amp;task={{ check.task }}">{% ui '查看' 'Review' %}</a></li>{% endfor %}</ul>
+          <p class="text-secondary">{% ui '激活后将开放站点，可使用 admin 登录管理。未配置的可选功能可在后台继续设置。' 'Activation opens the site for sign-in with admin. Optional features can be configured later.' %}</p><form method="post" data-setup-form>{% csrf_token %}<input type="hidden" name="task" value="review"><input type="hidden" name="step" value="review"><button class="btn btn-primary" type="submit" name="action" value="activate" {% if not can_activate %}disabled{% endif %}>{% ui '完成激活并开放站点' 'Activate and open site' %}</button></form>
+        {% endif %}
+      </div></section>
+      <div class="d-flex flex-wrap justify-content-between gap-2 mt-3">
+        {% if previous_url %}<a class="btn" data-setup-link href="{{ previous_url }}">{% ui '上一步' 'Back' %}</a>{% else %}<span></span>{% endif %}
+        {% if not task.required %}<form method="post" data-setup-form data-navigation-form>{% csrf_token %}<input type="hidden" name="step" value="{{ step }}"><input type="hidden" name="task" value="{{ task.key }}"><button class="btn btn-link" name="action" value="skip" type="submit">{% if task.ready %}{% ui '保留现有配置，继续' 'Keep settings and continue' %}{% else %}{% ui '稍后配置' 'Set up later' %}{% endif %}</button></form>{% endif %}
+      </div>
+    </div>
+  </div>
+  {% endif %}
+  <p id="setup-live" class="visually-hidden" aria-live="polite"></p>
+</div>

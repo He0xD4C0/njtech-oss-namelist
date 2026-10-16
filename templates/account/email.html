@@ -1,1 +1,23 @@
-{% extends 'account/base_manage.html' %}{% load ui %}{% block account_content %}<section class="card"><div class="card-body"><h1>{% ui '邮箱验证' 'Email verification' %}</h1>{% if emailaddresses %}<form method="post" action="{% url 'account_email' %}">{% csrf_token %}{% for address in emailaddresses %}<label class="form-check mb-3"><input class="form-check-input" name="email" type="radio" value="{{ address.email }}" {% if address.primary %}checked{% endif %}><span class="form-check-label">{{ address.email }} {% if address.verified %}<span class="badge bg-green-lt">{% ui '已验证' 'Verified' %}</span>{% else %}<span class="badge bg-orange-lt">{% ui '未验证' 'Unverified' %}</span>{% endif %}</span></label>{% endfor %}<button class="btn btn-primary" name="action_send" type="submit">{% ui '重新发送验证邮件' 'Resend verification' %}</button></form>{% endif %}<div class="account-links"><a href="/account/profile/">{% ui '返回账号设置' 'Account settings' %}</a></div></div></section>{% endblock %}
+{% extends 'account/base_manage.html' %}{% load ui %}
+{% block account_content %}
+<section class="card"><div class="card-body">
+<h1>{% ui '邮箱管理' 'Email addresses' %}</h1>
+<p class="text-secondary">{% ui '所有已绑定邮箱均可登录或找回密码。默认邮箱用于账户通知，以及你选择公开时的个人主页展示。' 'Every bound email can be used to sign in or reset your password. The default email receives account notifications and appears on your profile if you make it public.' %}</p>
+{% for address in emailaddresses %}
+<div class="border rounded p-3 mb-3">
+  <div class="text-break mb-2">{{ address.email }} <span class="badge bg-green-lt">{% ui '已验证' 'Verified' %}</span>{% if address.primary %} <span class="badge bg-primary-lt">{% ui '默认邮箱' 'Default email' %}</span>{% endif %}</div>
+  <form method="post" class="d-flex flex-wrap gap-2">{% csrf_token %}<input type="hidden" name="email" value="{{ address.email }}">
+    {% if not address.primary %}<button class="btn btn-sm btn-outline-primary" name="action_primary" type="submit">{% ui '设为默认' 'Make default' %}</button>{% endif %}
+    {% if not address.primary or user.is_superuser and emailaddresses|length == 1 %}<button class="btn btn-sm btn-outline-danger" name="action_remove" type="submit">{% ui '解绑' 'Remove' %}</button>{% endif %}
+  </form>
+  {% if address.primary %}<p class="form-hint mb-0 mt-2">{% if user.is_superuser and emailaddresses|length == 1 %}{% ui 'admin 可不绑定邮箱；解绑后无法通过邮件找回密码。' 'admin may have no email; email password recovery will then be unavailable.' %}{% else %}{% ui '解绑前须先设置另一个默认邮箱。普通账户须保留至少一个邮箱。' 'Choose another default before removing this address. Regular accounts must retain at least one email.' %}{% endif %}</p>{% endif %}
+</div>
+{% empty %}<p>{% ui '尚未绑定邮箱。' 'No email addresses are bound.' %}</p>{% endfor %}
+<h2 class="h3 mt-4">{% ui '添加邮箱' 'Add an email' %}</h2>
+<form onsubmit="return false">{% csrf_token %}
+  <label class="form-label" for="new-email">{% ui '新邮箱' 'New email' %}</label>
+  <input class="form-control mb-3" id="new-email" name="email" type="email" required autocomplete="email">
+  {% include 'account/mailbox_proof.html' with proof_purpose='add' %}
+</form>
+</div></section>
+{% endblock %}

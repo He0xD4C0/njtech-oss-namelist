@@ -13,7 +13,8 @@ from deploy.backup.readiness import configuration  # noqa: E402
 
 def main():
     output = Path("/etc/pgbackrest/pgbackrest.conf")
-    content = configuration()
+    from deploy.backup import managed
+    content = managed.config_path(managed.active()["revision"]).read_text() if managed.enabled() else configuration()
     output.parent.mkdir(parents=True, exist_ok=True)
     descriptor, temporary = tempfile.mkstemp(prefix=".config-", dir=output.parent)
     try:

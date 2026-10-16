@@ -1,1 +1,12 @@
-{% extends 'base.html' %}{% load ui %}{% block content %}<section class="account-shell card"><div class="card-body"><h1>{% ui '确认邮箱地址' 'Confirm email address' %}</h1>{% if confirmation %}<p>{{ confirmation.email_address.email }}</p><form method="post" action="{% url 'account_confirm_email' confirmation.key %}">{% csrf_token %}<button class="btn btn-primary" type="submit">{% ui '确认此邮箱' 'Confirm this email' %}</button></form>{% else %}<p>{% ui '验证链接无效或已过期，请重新发送。' 'This verification link is invalid or expired. Request another email.' %}</p><a href="{% url 'account_email' %}">{% ui '管理邮箱' 'Manage email' %}</a>{% endif %}</div></section>{% endblock %}
+{% extends 'base.html' %}{% load ui %}
+{% block content %}<section class="account-shell card"><div class="card-body">
+<h1>{% ui '确认邮箱地址' 'Confirm email address' %}</h1>
+{% if proof_email %}
+  <p class="text-break">{{ proof_email }}</p>
+  {% if target_user %}<p>{% ui '绑定到本站账户：' 'Bind to this site account:' %} <strong>@{{ target_user.username }}</strong></p>{% else %}<p>{% ui '验证后返回原页面完成账户创建。' 'Return to the original page after verification to finish creating your account.' %}</p>{% endif %}
+  {% if error %}<p class="alert alert-danger" role="alert">{{ error }}</p>
+  {% elif confirmed %}<p class="alert alert-success" role="status">{% ui '邮箱已确认。请返回发起操作的页面继续。' 'Email confirmed. Return to the page where you started to continue.' %}</p>
+  {% else %}<form method="post">{% csrf_token %}<button class="btn btn-primary" type="submit">{% ui '确认此邮箱' 'Confirm this email' %}</button></form>{% endif %}
+{% else %}<p class="alert alert-warning">{% ui '验证链接无效、已使用或已过期，请从原页面重新发送。' 'The verification link is invalid, used or expired. Request another from the original page.' %}</p>{% endif %}
+<a class="btn btn-link mt-3" href="{{ return_url }}">{% ui '返回原页面' 'Return to the original page' %}</a>
+</div></section>{% endblock %}

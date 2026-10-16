@@ -4,10 +4,13 @@ import json
 import os
 import signal
 import subprocess
+import sys
 import threading
 from datetime import datetime, time
 from pathlib import Path
 from zoneinfo import ZoneInfo
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 stopping = threading.Event()
 signal.signal(signal.SIGTERM, lambda *_: stopping.set())
@@ -26,17 +29,15 @@ def notify():
         import django
 
         django.setup()
-        from django.core.mail import send_mail
-
+        from core.mail import send_system_mail
         from core.runtime import get_setting
 
         recipients = get_setting("operations_emails").replace(";", ",").split(",")
         recipients = [recipient.strip() for recipient in recipients if recipient.strip()]
         if recipients:
-            send_mail(
+            send_system_mail(
                 "[namelist] Backup failed",
                 "The scheduled pgBackRest backup failed. Inspect maintenance and pgBackRest logs; credentials are not included in this alert.",
-                None,
                 recipients,
             )
     except Exception:
@@ -51,6 +52,15 @@ def main():
         completed = ""
     while not stopping.is_set():
         now = datetime.now(ZoneInfo("Asia/Shanghai"))
+        from deploy.backup import managed
+        if managed.enabled():
+            try:
+                protected = managed.active()["state"] == "active"
+            except (OSError, ValueError):
+                protected = False
+            if not protected:
+                stopping.wait(30)
+                continue
         if due(now, completed):
             try:
                 subprocess.run(
@@ -62,7 +72,10 @@ def main():
                 temporary = state.with_suffix(".tmp")
                 temporary.write_text(json.dumps({"completed": completed}))
                 temporary.replace(state)
-            except (subprocess.SubprocessError, OSError):
+            except (subprocess.SubprocessError, OSError) as error:
+                if isinstance(error, subprocess.CalledProcessError) and error.returncode == 75:
+                    stopping.wait(30)
+                    continue
                 print("Scheduled backup failed; retrying in one hour", flush=True)
                 notify()
                 stopping.wait(3600)

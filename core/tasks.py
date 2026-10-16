@@ -7,21 +7,13 @@ from pathlib import Path
 
 from celery import shared_task
 from django.conf import settings
-from django.core.mail import send_mail
-from django.db import transaction
 from django.utils import timezone
 
-from .models import PolicyDocument, SourceSyncState, SyncRun
+from .i18n import text
+from .mail import send_system_mail
+from .models import PolicyDocument, SyncRun
 from .runtime import get_setting
-
-
-def begin_sync(kind):
-    with transaction.atomic():
-        state, _ = SourceSyncState.objects.get_or_create(kind=kind)
-        state = SourceSyncState.objects.select_for_update().get(pk=state.pk)
-        state.generation += 1
-        state.save(update_fields=["generation"])
-        return state.generation
+from .sync import execute_sync
 
 
 def record_failure(kind):
@@ -34,55 +26,48 @@ def record_failure(kind):
     notify_failure.delay(kind)
 
 
-@shared_task(
-    bind=True, autoretry_for=(ConnectionError, subprocess.SubprocessError), retry_backoff=True, max_retries=4
-)
-def sync_documents(self):
+@shared_task(bind=True, max_retries=None)
+def sync_documents(self, run_id=None, source=None, generation=None, business_retries=0):
+    return execute_sync(self, "documents", _sync_documents, run_id, source, generation, business_retries)
+
+
+def _sync_documents(lease, source, generation):
     from .git import fetch_snapshot
 
-    source = get_setting("policy_source_url")
-    if not source:
-        return "not-configured"
-    generation = begin_sync("documents")
-    try:
-        snapshot = fetch_snapshot(source, mode="documents")
-        valid = {
-            language: {
-                kind: snapshot.files.get(f"{language}/{kind}.md", "")
-                for kind in ("privacy", "terms", "inclusion")
-            }
-            for language in ("zh-CN", "en-US")
+    snapshot = fetch_snapshot(source, mode="documents")
+    valid = {
+        language: {
+            kind: snapshot.files.get(f"{language}/{kind}.md", "")
+            for kind in ("privacy", "terms", "inclusion")
         }
-        valid = {
-            language: documents
-            for language, documents in valid.items()
-            if all(body.strip() for body in documents.values())
-        }
-        if not valid:
-            raise ValueError("No complete policy language")
-        with transaction.atomic():
-            state = SourceSyncState.objects.select_for_update().get(kind="documents")
-            if state.generation != generation or get_setting("policy_source_url") != source:
-                return "superseded"
-            for language, documents in valid.items():
-                for kind, body in documents.items():
-                    existing = PolicyDocument.objects.filter(language=language, kind=kind).first()
-                    if not existing or existing.body != body:
-                        PolicyDocument.objects.update_or_create(
-                            language=language, kind=kind, defaults={"body": body, "source_sha": snapshot.sha}
-                        )
-            PolicyDocument.objects.exclude(language__in=valid).delete()
-            SyncRun.objects.create(kind="documents", status="success", source_sha=snapshot.sha)
-        return snapshot.sha
-    except Exception:
-        record_failure("documents")
-        raise
+        for language in ("zh-CN", "en-US")
+    }
+    valid = {
+        language: documents
+        for language, documents in valid.items()
+        if all(body.strip() for body in documents.values())
+    }
+    if not valid:
+        raise ValueError("No complete policy language")
+    with lease.publish():
+        for language, documents in valid.items():
+            for kind, body in documents.items():
+                existing = PolicyDocument.objects.filter(language=language, kind=kind).first()
+                if not existing or existing.body != body:
+                    PolicyDocument.objects.update_or_create(
+                        language=language, kind=kind, defaults={"body": body, "source_sha": snapshot.sha}
+                    )
+        PolicyDocument.objects.exclude(language__in=valid).delete()
+        lease.finish("success", snapshot.sha)
+    return snapshot.sha
 
 
-@shared_task(
-    bind=True, autoretry_for=(ConnectionError, subprocess.SubprocessError), retry_backoff=True, max_retries=4
-)
-def sync_license_policy(self):
+@shared_task(bind=True, max_retries=None)
+def sync_license_policy(self, run_id=None, source=None, generation=None, business_retries=0):
+    return execute_sync(self, "licenses", _sync_license_policy, run_id, source, generation, business_retries)
+
+
+def _sync_license_policy(lease, source, generation):
     from licensecheck.engine import (
         PolicyArtifactError,
         compile_policy,
@@ -94,10 +79,6 @@ def sync_license_policy(self):
 
     from .git import fetch_snapshot
 
-    source = get_setting("license_source_url")
-    if not source:
-        return "not-configured"
-    generation = begin_sync("licenses")
     temporary = None
     try:
         snapshot = fetch_snapshot(source, mode="rules")
@@ -108,6 +89,8 @@ def sync_license_policy(self):
             except PolicyArtifactError:
                 pass  # Cache is disposable; rebuilding must also work after DB-only restoration.
             else:
+                with lease.publish():
+                    lease.finish("unchanged", snapshot.sha)
                 return "unchanged"
         settings.WORK_ROOT.mkdir(parents=True, exist_ok=True)
         temporary = Path(tempfile.mkdtemp(prefix="compile-", dir=settings.WORK_ROOT))
@@ -119,10 +102,7 @@ def sync_license_policy(self):
             / f"{snapshot.sha}-{hashlib.sha256(version.encode()).hexdigest()[:12]}-{generation}"
         )
         final.parent.mkdir(parents=True, exist_ok=True)
-        with transaction.atomic():
-            state = SourceSyncState.objects.select_for_update().get(kind="licenses")
-            if state.generation != generation or get_setting("license_source_url") != source:
-                return "superseded"
+        with lease.publish():
             if not final.exists():
                 os.rename(temporary, final)
                 temporary = None
@@ -136,14 +116,11 @@ def sync_license_policy(self):
                     "index_path": str(final),
                 },
             )
-            SyncRun.objects.create(kind="licenses", status="success", source_sha=snapshot.sha)
             ids = list(Submission.objects.exclude(status="removed").values_list("pk", flat=True))
             for pk in ids:
                 schedule_audit(pk)
+            lease.finish("success", snapshot.sha)
         return snapshot.sha
-    except Exception:
-        record_failure("licenses")
-        raise
     finally:
         if temporary and temporary.exists():
             shutil.rmtree(temporary)
@@ -151,8 +128,11 @@ def sync_license_policy(self):
 
 @shared_task
 def daily_source_sync():
-    sync_documents.delay()
-    sync_license_policy.delay()
+    from .sync import queue_sync
+
+    for kind in ("documents", "licenses"):
+        if get_setting("policy_source_url" if kind == "documents" else "license_source_url"):
+            queue_sync(kind)
 
 
 @shared_task(bind=True, autoretry_for=(Exception,), retry_backoff=True, max_retries=5)
@@ -187,11 +167,11 @@ def notify_failure(kind):
     if not recipients:
         return "no-recipients"
     try:
-        send_mail(
-            "[OSS Directory] Task failure",
-            f"任务 {kind} 失败，请查看管理面板。 / Task {kind} failed; review the administration panel.",
-            None,
-            recipients,
+        send_system_mail(
+            text("NJTech OSS · 任务失败通知", "NJTech OSS · Task failure"),
+            text(f"任务 {kind} 执行失败，请到管理后台查看记录并处理。", f"Task {kind} failed. Review the records in the administration panel."),
+            recipients, action_url=settings.SITE_BASE_URL.rstrip("/") + "/manage/settings/",
+            action_label=text("查看运行状态", "View status"),
         )
     except Exception:
         SyncRun.objects.create(kind="alert", status="failed", message="告警邮件发送失败 / Alert email failed")
@@ -211,7 +191,24 @@ def report_backup_readiness():
     except (ValueError, OSError):
         state = "invalid"
     try:
-        cache.set("backup-readiness", {"state": state, "checked_at": timezone.now().isoformat()}, timeout=180)
+        from deploy.backup import managed
+        report = managed.status() if managed.enabled() else {}
+        if managed.enabled():
+            try:
+                with managed.lock(blocking=False):
+                    report["busy"] = False
+                    # Reconcile publication interrupted before DB commit, under the same lock as apply.
+                    if state == "ready":
+                        from .models import BackupConfiguration
+                        active = managed.active()
+                        if active.get("location"):
+                            BackupConfiguration.objects.filter(pk=1).update(
+                                applied_revision=active["revision"], location=active["location"])
+            except BlockingIOError:
+                report["busy"] = True
+            if report.get("state") == "running" and not report["busy"]:
+                report["state"] = "interrupted"
+        cache.set("backup-readiness", {"state": state, "backup": report, "checked_at": timezone.now().isoformat()}, timeout=180)
     except Exception:
         # Status reporting must not stop the independent backup scheduler.
         return "unavailable"
@@ -263,3 +260,7 @@ def restore_drill():
         return "failed"
     finally:
         cache.delete("restore-drill-running")
+
+
+# Register the backup task in Celery autodiscovery without exposing secrets to the broker.
+from .backup import backup_operation  # noqa: E402,F401

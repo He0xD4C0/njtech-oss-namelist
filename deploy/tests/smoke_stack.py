@@ -359,7 +359,7 @@ def browser_smoke(run):
         "import json; from core.models import User, SiteState; from allauth.account.models import EmailAddress; "
         "from django.test import Client; from django.utils import timezone; "
         "SiteState.objects.update_or_create(pk=1, defaults={'activated_at':timezone.now()}); "
-        "u=User.objects.create_superuser('smoke-admin', 'smoke@example.invalid', 'Local-smoke-password-429'); "
+        "u=User.objects.create_superuser('admin', 'smoke@example.invalid', 'Local-smoke-password-429'); "
         "EmailAddress.objects.create(user=u,email=u.email,verified=True,primary=True); "
         "c=Client(); c.force_login(u); print(json.dumps({'session':c.cookies['sessionid'].value}))",
         capture=True,
@@ -390,7 +390,7 @@ def browser_smoke(run):
             expect(page.get_by_role("link", name="探索仓库", exact=False)).to_be_visible()
             assert page.evaluate("document.documentElement.scrollWidth <= window.innerWidth")
             context.add_cookies([{"name": "sessionid", "value": cookie, "url": origin, "httpOnly": True}])
-            page.goto(origin + "/u/smoke-admin/", wait_until="networkidle")
+            page.goto(origin + "/u/admin/", wait_until="networkidle")
             assert page.locator(".profile-avatar").evaluate("image => image.complete && image.naturalWidth > 0")
             page.set_viewport_size({"width": 1440, "height": 1000})
             page.goto(origin + "/admin/bulletins/announcement/add/", wait_until="networkidle")
