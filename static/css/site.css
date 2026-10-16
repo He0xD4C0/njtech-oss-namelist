@@ -1,30 +1,16 @@
-:root { --ui-control-bg: #edf2f8; --ui-control-border: #7b8a9c; --tblr-link-color: #0864bd; --tblr-link-hover-color: #05529e; --tblr-font-sans-serif: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif; }
-[data-bs-theme="dark"] { --ui-control-bg: #293c54; --ui-control-border: #7d93ad; --tblr-link-color: var(--tblr-primary-text-emphasis); --tblr-link-hover-color: #b3d8ff; }
-.bg-blue-lt, .bg-primary-lt { color: #17558a !important; }
-.text-success, .bg-green-lt { color: #176b2d !important; }
-.bg-orange-lt { color: #954200 !important; }
-.bg-secondary-lt { color: #536174 !important; }
-.bg-purple-lt { color: #6a319c !important; }
-[data-bs-theme="dark"] .text-primary, [data-bs-theme="dark"] .bg-blue-lt, [data-bs-theme="dark"] .bg-primary-lt { color: var(--tblr-primary-text-emphasis) !important; }
-[data-bs-theme="dark"] .text-success, [data-bs-theme="dark"] .bg-green-lt { color: #8ce99a !important; }
-[data-bs-theme="dark"] .bg-orange-lt { color: #ffbe85 !important; }
-[data-bs-theme="dark"] .bg-secondary-lt { color: #c0cad8 !important; }
-[data-bs-theme="dark"] .bg-purple-lt { color: #d4b5ff !important; }
-/* Secondary actions remain visible at rest, including on touch screens. */
-.btn-outline-primary { --tblr-btn-bg: #eaf2ff; --tblr-btn-color: #174777; --tblr-btn-border-color: #577da8; }
-.btn-outline-secondary { --tblr-btn-bg: var(--ui-control-bg); --tblr-btn-color: var(--tblr-body-color); --tblr-btn-border-color: var(--ui-control-border); }
-.btn-outline-danger { --tblr-btn-bg: #fff0f0; --tblr-btn-color: #b4232d; --tblr-btn-border-color: #b4232d; }
-.btn-danger { --tblr-btn-bg: #c92f35; }
-[data-bs-theme="dark"] .btn-outline-primary { --tblr-btn-bg: #223c59; --tblr-btn-color: #d2e7ff; --tblr-btn-border-color: #79a9dd; }
-[data-bs-theme="dark"] .btn-outline-danger { --tblr-btn-bg: #512f3b; --tblr-btn-color: #ffb4b4; --tblr-btn-border-color: #ffb4b4; }
-.text-danger { color: #b4232d !important; }
-[data-bs-theme="dark"] .text-danger { color: #ffb4b4 !important; }
-.form-control, .form-select, .form-check-input { border-color: var(--ui-control-border); }
-.form-control:focus, .form-select:focus, .form-check-input:focus { border-color: var(--tblr-primary); }
+:root { --tblr-font-sans-serif: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif; }
+/* Keep links, keyboard focus and touch targets accessible across Tabler themes. */
+[data-bs-theme="dark"] { --tblr-link-color: var(--tblr-primary-text-emphasis); --tblr-link-hover-color: var(--tblr-primary-text-emphasis); }
+/* Correct Tabler 1.4 contrast tokens without changing component geometry. */
+:root {
+  --tblr-danger-fg: var(--tblr-white);
+  --tblr-primary-darken: color-mix(in srgb, var(--tblr-primary), var(--tblr-black) 10%);
+  --tblr-secondary-darken: color-mix(in srgb, var(--tblr-secondary), var(--tblr-black) 10%);
+  --tblr-danger-darken: color-mix(in srgb, var(--tblr-danger), var(--tblr-black) 10%);
+}
+[data-bs-theme="dark"] { --tblr-secondary-fg: var(--tblr-dark); }
+[data-bs-theme="dark"] .btn-outline-danger { --tblr-btn-color: var(--tblr-danger-text-emphasis); --tblr-btn-border-color: var(--tblr-danger-text-emphasis); }
 .btn:focus-visible, a:focus-visible, summary:focus-visible { outline: 3px solid var(--tblr-primary-text-emphasis); outline-offset: 3px; }
-.page summary { cursor: pointer; padding: .5rem .75rem; border: 1px solid var(--ui-control-border); border-radius: var(--tblr-border-radius); background: var(--ui-control-bg); }
-.navbar-toggler { color: var(--tblr-body-color); border: 1px solid var(--ui-control-border); background: var(--ui-control-bg); }
-.repository-platform-button { min-height: 44px; border-width: 2px; font-weight: 600; }
 @media (pointer: coarse) { .btn, .navbar-toggler, .form-select { min-height: 44px; } }
 .skip-link { position: fixed; left: 1rem; top: -5rem; z-index: 10000; padding: .75rem; background: var(--tblr-bg-surface); }
 .skip-link:focus { top: .75rem; }

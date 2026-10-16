@@ -34,7 +34,7 @@ CONTROL_AUDIT = """() => {
   const lum = color => color.map(x => x <= .04045 ? x/12.92 : ((x+.055)/1.055)**2.4)
     .reduce((sum, x, i) => sum + x * [.2126, .7152, .0722][i], 0);
   const contrast = (a, b) => (Math.max(lum(a),lum(b))+.05)/(Math.min(lum(a),lum(b))+.05);
-  const elements = [...document.querySelectorAll('button, a.btn, a.admin-action, .badge, input:not([type="hidden"]), select, textarea, summary, #site-navigation a, #account-navigation a')];
+  const elements = [...document.querySelectorAll('button, a.btn, a.font-medium.inline-flex, .badge, input:not([type="hidden"]), select, textarea, summary, #site-navigation a, #account-navigation a')];
   return elements.filter(n => n.checkVisibility() && !n.disabled && n.getAttribute('aria-hidden') !== 'true')
     .filter(n => !n.closest('.CodeMirror') && !n.classList.contains('select2-search__field'))
     .map(n => {
@@ -42,7 +42,7 @@ CONTROL_AUDIT = """() => {
       const border = mix(rgb(style.borderTopColor), bg);
       const rect = n.getBoundingClientRect();
       return {tag:n.tagName, type:n.type, id:n.id, classes:n.className, text:(n.innerText || n.getAttribute('aria-label') || n.name || '').trim().slice(0,80),
-        foreground:style.color, background:style.backgroundColor, border:style.borderTopColor,
+        hovered:n.matches(':hover'), foreground:style.color, background:style.backgroundColor, border:style.borderTopColor,
         textContrast:contrast(mix(rgb(style.color), bg), bg), borderContrast:parseFloat(style.borderTopWidth) ? contrast(border,surrounding):0,
         fillContrast:contrast(bg,surrounding), height:rect.height, width:rect.width};
     });
@@ -77,6 +77,7 @@ def test_all_page_controls(page, live_server, session_login, artifact_dir, setti
     failures = []
     page.on('pageerror', lambda error: failures.append(str(error)))
     observations = []
+    hover_samples = set()
 
     def visit(path, group):
         response = page.goto(live_server.url + path)
@@ -104,6 +105,17 @@ def test_all_page_controls(page, live_server, session_login, artifact_dir, setti
                 page.screenshot(path=str(artifact_dir / screenshot), full_page=True)
                 observations.append({'path':path, 'resolved_url':page.url, 'group':group, 'width':width, 'theme':theme,
                                      'overflow':overflow, 'controls':controls, 'screenshot':screenshot})
+                for variant in ('btn-primary', 'btn-outline-secondary', 'btn-outline-danger', 'btn-danger'):
+                    if (theme, variant) in hover_samples:
+                        continue
+                    control = page.locator(f'.{variant}:visible:not(:disabled)').first
+                    if not control.count():
+                        continue
+                    control.hover()
+                    page.wait_for_function("document.getAnimations().every(a => a.playState !== 'running' || a.effect.getTiming().iterations === Infinity)")
+                    observations.append({'path':path, 'group':group, 'width':width, 'theme':theme, 'interaction':'hover',
+                                         'overflow':False, 'controls':[c for c in page.evaluate(CONTROL_AUDIT) if c['hovered']]})
+                    hover_samples.add((theme, variant))
                 (artifact_dir / 'page-controls.json').write_text(json.dumps(observations, ensure_ascii=False, indent=2))
 
     for path in ('/', '/repositories/', '/rankings/', '/announcements/', f'/announcements/{notice.pk}/',

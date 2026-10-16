@@ -284,7 +284,7 @@ class ConfigurationForm(forms.Form):
                 choices.append(("none", text("仅本机测试：不加密", "Local testing only: unencrypted")))
             self.fields["smtp_security"] = forms.ChoiceField(
                 required=False, label=text(*CONFIG_FIELDS["smtp_security"]), choices=choices,
-                widget=forms.RadioSelect(attrs={"class": "form-check-input m-0"}), initial=get_setting("smtp_security") or "starttls",
+                widget=forms.RadioSelect(attrs={"class": "form-check-input"}), initial=get_setting("smtp_security") or "starttls",
             )
         help_texts = {
             "smtp_host": ("填写邮箱服务商提供的 SMTP 地址，不需要 https://。", "Enter the SMTP hostname from your email provider, without https://."),

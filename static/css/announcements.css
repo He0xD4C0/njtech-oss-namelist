@@ -13,7 +13,6 @@
 .announcement-dialog-header { display: flex; justify-content: space-between; padding: 1.25rem; border-bottom: 1px solid var(--notice-border); flex-shrink: 0; gap: .75rem; }
 .announcement-kind { color: var(--notice-muted); font-size: .75rem; }
 .announcement-dialog h2 { margin: .5rem 0 0; font-size: 1.25rem; font-weight: 600; line-height: 1.5; overflow-wrap: anywhere; }
-.announcement-close { border: 0; background: none; color: var(--notice-muted); font-size: 1.75rem; width: 2.5rem; height: 2.5rem; flex-shrink: 0; cursor: pointer; }
 .announcement-dialog-body { overflow: auto; padding: 1.25rem; }
 .announcement-dialog .markdown-body { line-height: 1.8; font-size: .9375rem; overflow-wrap: anywhere; }
 .announcement-dialog .markdown-body img { max-width: 100%; }
@@ -25,9 +24,6 @@
 .announcement-receipt { border-top: 1px solid var(--notice-border); padding: 1rem 1.25rem; flex-shrink: 0; }
 .announcement-dialog a { color: #066fd1; }
 [data-bs-theme="dark"] .announcement-dialog a, .dark .announcement-dialog a { color: #83bffc; }
-.announcement-confirm { border: 0; border-radius: .25rem; padding: .625rem 1rem; background: #066fd1; color: #fff; font-size: .875rem; font-weight: 600; cursor: pointer; }
-.announcement-confirm:disabled { opacity: .6; cursor: wait; }
-.announcement-confirm:focus-visible, .announcement-close:focus-visible { outline: 3px solid #83bffc; outline-offset: 3px; }
 .announcement-error { color: #d63939; font-size: .875rem; margin: 0 0 .75rem; }
 .announcement-error[hidden] { display: none; }
 .noscript-announcement { max-width: 40rem; margin: 1.5rem auto; border: 1px solid currentColor; padding: 1.5rem; }

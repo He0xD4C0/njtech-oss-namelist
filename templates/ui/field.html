@@ -3,7 +3,7 @@
   {% with WIDGET_ERROR_CLASS='is-invalid' %}
     {% if field|widget_type == 'radioselect' %}
       <fieldset><legend class="form-label">{{ field.label }}</legend>
-        {% for option in field %}<label class="border rounded p-3 mb-2 d-flex align-items-center gap-2" for="{{ option.id_for_label }}">{{ option.tag }}<span class="form-check-label">{{ option.choice_label }}</span></label>{% endfor %}
+        {% for option in field %}<label class="form-check" for="{{ option.id_for_label }}">{{ option.tag }}<span class="form-check-label">{{ option.choice_label }}</span></label>{% endfor %}
       </fieldset>
     {% elif field|widget_type == 'checkboxinput' %}
       <label class="form-check" for="{{ field.id_for_label }}">{% render_field field class+='form-check-input' %}<span class="form-check-label">{{ field.label }}</span></label>

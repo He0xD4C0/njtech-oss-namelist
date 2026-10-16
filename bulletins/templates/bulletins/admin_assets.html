@@ -1,4 +1,4 @@
 {% load static %}<link rel="stylesheet" href="{% static 'css/announcements.css' %}">
 {# Unfold overrides footer on change/list views. An inert template in extrahead survives those layouts. #}
-<template id="site-announcement-popups">{% include 'bulletins/popups.html' %}</template>
+<template id="site-announcement-popups">{% include 'bulletins/popups.html' with admin_ui=True %}</template>
 <script src="{% static 'js/announcements.js' %}" defer></script>

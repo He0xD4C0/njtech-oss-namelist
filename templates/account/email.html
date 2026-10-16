@@ -5,9 +5,9 @@
 <p class="text-secondary">{% ui '所有已绑定邮箱均可登录或找回密码。默认邮箱用于账户通知，以及你选择公开时的个人主页展示。' 'Every bound email can be used to sign in or reset your password. The default email receives account notifications and appears on your profile if you make it public.' %}</p>
 {% for address in emailaddresses %}
 <div class="border rounded p-3 mb-3">
-  <div class="text-break mb-2">{{ address.email }} <span class="badge bg-green-lt">{% ui '已验证' 'Verified' %}</span>{% if address.primary %} <span class="badge bg-primary-lt">{% ui '默认邮箱' 'Default email' %}</span>{% endif %}</div>
+  <div class="text-break mb-2">{{ address.email }} <span class="badge bg-success-subtle text-success-emphasis">{% ui '已验证' 'Verified' %}</span>{% if address.primary %} <span class="badge bg-primary-subtle text-primary-emphasis">{% ui '默认邮箱' 'Default email' %}</span>{% endif %}</div>
   <form method="post" class="d-flex flex-wrap gap-2">{% csrf_token %}<input type="hidden" name="email" value="{{ address.email }}">
-    {% if not address.primary %}<button class="btn btn-sm btn-outline-primary" name="action_primary" type="submit">{% ui '设为默认' 'Make default' %}</button>{% endif %}
+    {% if not address.primary %}<button class="btn btn-sm btn-outline-secondary" name="action_primary" type="submit">{% ui '设为默认' 'Make default' %}</button>{% endif %}
     {% if not address.primary or user.is_superuser and emailaddresses|length == 1 %}<button class="btn btn-sm btn-outline-danger" name="action_remove" type="submit">{% ui '解绑' 'Remove' %}</button>{% endif %}
   </form>
   {% if address.primary %}<p class="form-hint mb-0 mt-2">{% if user.is_superuser and emailaddresses|length == 1 %}{% ui 'admin 可不绑定邮箱；解绑后无法通过邮件找回密码。' 'admin may have no email; email password recovery will then be unavailable.' %}{% else %}{% ui '解绑前须先设置另一个默认邮箱。普通账户须保留至少一个邮箱。' 'Choose another default before removing this address. Regular accounts must retain at least one email.' %}{% endif %}</p>{% endif %}

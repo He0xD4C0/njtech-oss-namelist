@@ -239,7 +239,7 @@ def test_policy_nondismissible_all_pages_and_normal_cross_device(
     expect(page.locator("dialog[open]")).to_have_count(0)
 
 
-def test_real_admin_popup_and_server_markdown_editor(page, live_server, session_login):
+def test_real_admin_popup_and_server_markdown_editor(page, live_server, session_login, artifact_dir):
     user = User.objects.create_user(
         "staff-user", email="staff@example.com", password="Visible-testing-password-42", is_staff=True
     )
@@ -263,6 +263,18 @@ def test_real_admin_popup_and_server_markdown_editor(page, live_server, session_
     page.locator(".editor-toolbar button.preview").click()
     expect(page.locator(".editor-preview strong")).to_have_text("服务端预览")
     assert page.locator(".editor-preview script").count() == 0
+
+    page.goto('about:blank')
+    Announcement.objects.create(title='后台普通提示', body='可以关闭此提示', creator_name='管理员')
+    page.set_viewport_size({'width': 390, 'height': 844})
+    page.goto(live_server.url + '/admin/')
+    expect(page.locator('dialog[open]')).to_contain_text('后台普通提示')
+    assert page.evaluate('document.documentElement.scrollWidth <= innerWidth')
+    page.screenshot(path=str(artifact_dir / 'admin-notice-mobile.png'))
+    page.get_by_role('button', name='关闭公告', exact=True).click()
+    expect(page.locator('dialog[open]')).to_have_count(0)
+    page.reload()
+    expect(page.locator('dialog[open]')).to_have_count(0)
 
 
 def test_registration_verification_and_password_login_browser(page, browser, live_server, external_services_test_only):
@@ -397,7 +409,6 @@ def test_repository_submission_from_home(page, live_server, session_login, artif
     page.goto(live_server.url + '/submit/')
     platform_button = page.get_by_role('link', name=t('查看 GitHub 仓库', 'View GitHub repositories'), exact=True)
     expect(platform_button).to_be_visible()
-    expect(platform_button).to_have_class(re.compile('repository-platform-button'))
     assert not page.locator('#choose-repository').evaluate('node => node.closest("details")')
     assert page.evaluate('document.documentElement.scrollWidth <= innerWidth')
     for theme in ('light', 'dark'):
@@ -449,7 +460,17 @@ def test_repository_submission_from_home(page, live_server, session_login, artif
     expect(page.get_by_role('link', name=t('重新加载', 'Try again'), exact=True)).to_be_visible()
     api.list_owned_public.side_effect = None
     page.get_by_role('link', name=t('刷新状态', 'Refresh status'), exact=True).click()
-    page.get_by_text(t('移除收录', 'Remove entry'), exact=True).click()
+    removal = page.get_by_role('button', name=t('移除收录', 'Remove entry'), exact=True)
+    # Read both rectangles in one frame: hash navigation can still be scrolling.
+    aligned = """node => {
+        const removal = node.getBoundingClientRect();
+        const recheck = node.parentElement.querySelector('form button').getBoundingClientRect();
+        return Math.abs(removal.y - recheck.y) < 1 && Math.abs(removal.height - recheck.height) < 1;
+    }"""
+    assert removal.evaluate(aligned)
+    removal.click()
+    expect(removal).to_have_attribute('aria-expanded', 'true')
+    assert removal.evaluate(aligned)
     expect(page.get_by_text(t('这会移除本站的收录记录', 'This removes the entry from this site'), exact=False)).to_be_visible()
     assert Submission.objects.get(pk=claim.pk).status == 'queued'
     page.get_by_role('button', name=t('确认移除', 'Confirm removal'), exact=True).click()

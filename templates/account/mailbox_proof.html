@@ -8,7 +8,7 @@
      data-failed="{% ui '请求未完成，请检查连接后重试。' 'The request did not complete. Check the connection and retry.' %}">
   <p class="form-hint">{% ui '点击邮件链接完成验证前，邮箱不会写入账户。' 'The email is not saved to your account until verified through the email link.' %}</p>
   <div class="d-flex flex-wrap gap-2">
-    <button type="button" class="btn btn-outline-primary" data-mailbox-send>{% ui '发送验证邮件' 'Send verification email' %}</button>
+    <button type="button" class="btn btn-primary" data-mailbox-send>{% ui '发送验证邮件' 'Send verification email' %}</button>
     <button type="button" class="btn btn-outline-secondary" data-mailbox-cancel hidden>{% ui '取消验证' 'Cancel verification' %}</button>
   </div>
   <p class="mt-3 mb-0 text-break" role="status" aria-live="polite" data-mailbox-status></p>
