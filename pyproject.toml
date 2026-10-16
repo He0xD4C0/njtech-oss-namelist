@@ -16,7 +16,10 @@ dependencies = [
 
 [dependency-groups]
 dev = ["pytest>=8,<10", "pytest-django>=4.11,<5", "pytest-httpx>=0.35,<1", "playwright>=1.55,<2", "ruff>=0.14,<1"]
-scanner = ["scancode-toolkit>=32.4,<33"]
+scanner = [
+    "jpype1==1.7.1",
+    "scancode-toolkit>=32.4,<33",
+]
 
 [tool.pytest.ini_options]
 DJANGO_SETTINGS_MODULE = "config.test_settings"

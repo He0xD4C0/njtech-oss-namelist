@@ -12,6 +12,7 @@ from django.utils import timezone
 from core.crypto import encrypt
 from core.git import GitSnapshot
 from core.models import User
+from licensecheck import spdx
 from licensecheck.engine import compile_policy
 from providers.clients import RepoData
 from providers.models import OAuthBinding
@@ -35,11 +36,13 @@ given and no creator accepts liability for any damage arising from this work.
 @pytest.mark.parametrize(
     "platform,host", [("github", "github.com"), ("gitee", "gitee.com"), ("gitlab", "gitlab.com")]
 )
+@pytest.mark.parametrize("standard", [False, True], ids=["custom-policy", "spdx-variables"])
 def test_submit_real_scan_publish_and_stale_job_withdraw(
-    platform, host, tmp_path, django_capture_on_commit_callbacks
+    platform, host, standard, tmp_path, django_capture_on_commit_callbacks, client, initialized_site
 ):
     index = tmp_path / "index"
-    manifest = compile_policy({"whitelist/arbitrary-name": TEXT}, index)
+    policy_text = spdx.templates()["MIT"]["text"] if standard else TEXT
+    manifest = compile_policy({"whitelist/arbitrary-name": policy_text}, index)
     LicensePolicy.objects.create(
         source_sha="b" * 40,
         active=True,
@@ -78,7 +81,9 @@ def test_submit_real_scan_publish_and_stale_job_withdraw(
     )
     # ScanCode parses Bob Smith as a holder; "Another Author" is JUNK/AUTH and
     # remains uncertain, covered separately by the license-engine negative test.
-    source = GitSnapshot("a" * 40, at, {"LICENSE": TEXT.replace("2023 Open Example", "2026 Bob Smith")})
+    candidate = (policy_text.replace("MIT License", "").replace("<year> <copyright holders>", "2026 张三")
+                 if standard else TEXT.replace("2023 Open Example", "2026 Bob Smith"))
+    source = GitSnapshot("a" * 40, at, {"LICENSE": candidate})
     with (
         patch("providers.api.validate_repository", return_value=data),
         patch("repositories.tasks.audit_submission.delay") as enqueue,
@@ -96,6 +101,9 @@ def test_submit_real_scan_publish_and_stale_job_withdraw(
     evidence = AuditResult.objects.get(submission=claim)
     assert evidence.source_sha == source.sha and evidence.policy_sha == "b" * 40
     assert evidence.detector_version.startswith("scancode-toolkit/")
+    response = client.get("/repositories/")
+    assert response.status_code == 200
+    assert "owner/demo" in response.content.decode()
     remove_submission(claim, owner)
     assert audit_submission(claim.pk, 1) == "superseded"
     claim.refresh_from_db()

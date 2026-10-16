@@ -1,9 +1,10 @@
 """Compile public policy texts and conservatively scan root license candidates.
 
 The native ScanCode database is identification evidence, never an allowlist. A
-separate, real ScanCode LicenseIndex contains only policy texts. Its matches must
-also cover the complete normalized candidate, including words that ScanCode
-normally treats as stopwords. Approximate/native matches cannot grant admission.
+separate, real ScanCode LicenseIndex contains only policy texts. Exact matches
+cover the complete normalized candidate. Official SPDX templates additionally
+allow their declared variable/optional fields, only after the policy text itself
+fully matches that template. Approximate/native matches cannot grant admission.
 
 Index pickles are generated locally, not fetched from Git. They must stay in the
 server-owned WORK_ROOT: never accept an uploaded/precompiled index. Their checksum,
@@ -24,8 +25,10 @@ from pathlib import Path, PurePosixPath
 from threading import RLock
 from typing import Any
 
+from . import spdx
+
 FORMAT_VERSION = 1
-ENGINE_VERSION = "policy-text-v2"
+ENGINE_VERSION = "policy-text-v3"
 MAX_FILE_BYTES = 2 * 1024 * 1024
 MAX_TOTAL_BYTES = 16 * 1024 * 1024
 MAX_FILES = 1024
@@ -54,7 +57,9 @@ def _sha(value: bytes | str) -> str:
 
 def _detector_version() -> str:
     try:
-        return f"scancode-toolkit/{metadata.version('scancode-toolkit')}; {ENGINE_VERSION}"
+        return (f"scancode-toolkit/{metadata.version('scancode-toolkit')}; {ENGINE_VERSION}; "
+                f"SPDX-tools/{spdx.TOOLS_VERSION}; SPDX/{spdx.DATA_VERSION}; "
+                f"JPype/{metadata.version('jpype1')}")
     except metadata.PackageNotFoundError as exc:
         raise ScannerUnavailable("Install the locked scanner dependency group on a scan worker") from exc
 
@@ -95,10 +100,13 @@ def _runtime() -> dict[str, Any]:
         from licensedcode.index import LicenseIndex
         from licensedcode.models import Rule
         from licensedcode.tokenize import index_tokenizer, query_pattern
+
+        spdx.templates()
+        spdx._comparator()
     except Exception:  # noqa: BLE001 - native loader uses generic, environment-bearing exceptions
         # Some ScanCode native-library import errors include os.environ in their
         # exception text. Never chain that text into task/log error reporting.
-        raise ScannerUnavailable("ScanCode/native libraries are not available in this worker") from None
+        raise ScannerUnavailable("ScanCode/SPDX runtime or offline templates are not available in this worker") from None
     return {
         "copyrights": detect_copyrights_from_lines,
         "index": LicenseIndex,
@@ -259,6 +267,7 @@ def compile_policy(files: dict[str, str], destination: Path) -> dict:
         raise PolicyCompilationError("Compile into a new empty staging directory, never an active index")
     records: dict[str, dict] = {}
     conflict_classes: dict[str, str] = {}
+    template_classes: dict[str, str] = {}
     for filename, text in sorted(files.items()):
         parts = PurePosixPath(filename).parts
         if len(parts) < 2 or parts[0] not in {"whitelist", "blacklist"}:
@@ -266,12 +275,25 @@ def compile_policy(files: dict[str, str], destination: Path) -> dict:
         normalized, ignored = _canonicalize(text)
         if not normalized:
             raise PolicyCompilationError(f"Policy file has no license text: {filename}")
-        key = f"policy-{_sha(normalized)}"
+        labels, native = _native_evidence(text)
+        template_ids = spdx.matching_templates(text, labels)
+        if not template_ids:
+            # Native labels are only a shortlist, not a recognition threshold.
+            # Official source texts provide a cheap second shortlist, avoiding
+            # hundreds of long comparisons when ScanCode uses a different ID.
+            sources = [identifier for identifier, data in spdx.templates().items() if data["text"] == text]
+            template_ids = spdx.matching_templates(text, sources or spdx.templates())
+        identity = "SPDX:" + ",".join(template_ids) if template_ids else normalized
+        key = f"policy-{_sha(identity)}"
         classification = parts[0]
+        for identifier in template_ids:
+            if identifier in template_classes and template_classes[identifier] != classification:
+                raise PolicyCompilationError(f"Conflicting whitelist/blacklist SPDX template: {identifier}")
+            template_classes[identifier] = classification
         # For rejecting ambiguous policy conflicts ONLY, err on the side of
         # assuming isolated copyright headers are variable. This broader check
-        # never authorizes a candidate: the strict parsed-notice/full-coverage
-        # checks below still govern publication. It catches unparsed pseudonyms
+        # never authorizes a candidate: full exact/template coverage below
+        # still governs publication. It catches unparsed pseudonyms
         # that could otherwise hide the same clauses in both policy classes.
         conflict_text = " ".join(
             " ".join(_coverage_tokens(line))
@@ -289,10 +311,10 @@ def compile_policy(files: dict[str, str], destination: Path) -> dict:
                 raise PolicyCompilationError(f"Conflicting whitelist/blacklist text: {key}")
             record["sources"].append({"path": filename, "sha256": _sha(text), "ignored_notices": ignored})
             continue
-        labels, native = _native_evidence(text)
         records[key] = {
             "id": key, "classification": classification, "normalized_text": normalized,
-            "labels": labels or [f"LicenseRef-{key}"], "native_matches": native,
+            "spdx_templates": template_ids,
+            "labels": template_ids or labels or [f"LicenseRef-{key}"], "native_matches": native,
             "sources": [{"path": filename, "sha256": _sha(text), "ignored_notices": ignored}],
         }
     if not records:
@@ -392,6 +414,66 @@ def _is_candidate(filename: str) -> bool:
                for base in ("license", "licence", "copying", "unlicense", "copyright"))
 
 
+def _template_sequence(
+    text: str, native: list[dict], native_labels: list[str], index, records: dict,
+) -> tuple[list[str] | None, list]:
+    """Cover the entire file with full policy/template matches, including bundles.
+
+    Native match boundaries only suggest partitions; they never authorize text.
+    Every character belongs to a fully checked segment, with no skipped gaps.
+    Keep all successful policy classes so an overlapping blacklist cannot lose
+    to the first whitelist path through the file.
+    """
+    lines = text.splitlines(keepends=True)
+    ends = sorted({len(lines)} | {
+        point for match in native for point in (match["start_line"] - 1, match["end_line"])
+        if 0 < point <= len(lines)
+    })
+    templates = {}
+    for key, record in records.items():
+        for identifier in record["spdx_templates"]:
+            templates.setdefault(identifier, set()).add(key)
+    if not templates:
+        return None, []
+    hints = set(native_labels).intersection(templates)
+    reachable = {0: (set(), [])}
+    for start in [0, *ends]:
+        if start not in reachable:
+            continue
+        for end in reversed(ends):
+            if end <= start:
+                continue
+            segment = "".join(lines[start:end])
+            identifiers = spdx.matching_templates(segment, hints)
+            remaining = set(templates) - hints
+            if identifiers:
+                matched_classes = {records[key]["classification"]
+                                   for identifier in identifiers for key in templates[identifier]}
+                # One full match proves this class. Still check every template
+                # of the other class, so a native shortlist cannot hide a mix.
+                remaining = {identifier for identifier in remaining if any(
+                    records[key]["classification"] not in matched_classes for key in templates[identifier]
+                )}
+            identifiers.extend(spdx.matching_templates(segment, remaining))
+            keys = {key for identifier in identifiers for key in templates[identifier]}
+            if not keys:
+                normalized, _ = _canonicalize(segment)
+                matches = index.match(query_string=normalized, approximate=False) if normalized else []
+                eligible = {m.rule.license_expression for m in matches
+                            if m.coverage() == 100 and m.score() == 100}
+                exact = _complete_sequence(normalized, eligible, records)
+                if exact is None:
+                    continue
+                keys.update(exact)
+            previous_keys, previous_evidence = reachable[start]
+            found_keys, found_evidence = reachable.get(end, (set(), []))
+            item = {"start_line": start + 1, "end_line": end, "templates": identifiers,
+                    "policies": sorted(keys)}
+            reachable[end] = (found_keys | previous_keys | keys, found_evidence + previous_evidence + [item])
+    complete = reachable.get(len(lines))
+    return (sorted(complete[0]), complete[1]) if complete else (None, [])
+
+
 def scan_candidates(files: dict[str, str], manifest: dict, index_path: Path) -> dict:
     """Return published/rejected/needs_review, metadata labels and auditable evidence.
 
@@ -417,9 +499,13 @@ def scan_candidates(files: dict[str, str], manifest: dict, index_path: Path) -> 
             if m.coverage() == 100 and m.score() == 100 and m.rule.license_expression in records
         }
         complete = _complete_sequence(normalized, eligible, records)
+        template_matches = []
+        if complete is None:
+            complete, template_matches = _template_sequence(text, native, native_labels, index, records)
         file_evidence = {
             "path": filename, "sha256": _sha(text), "ignored_notices": ignored,
             "native_matches": native, "native_labels": native_labels,
+            "spdx_template_matches": template_matches,
             "policy_matches": [{
                 "id": m.rule.license_expression, "rule": m.rule.identifier,
                 "matcher": m.matcher, "coverage": m.coverage(), "score": m.score(),

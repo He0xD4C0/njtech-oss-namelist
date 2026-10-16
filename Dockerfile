@@ -21,6 +21,8 @@ RUN --mount=type=cache,target=/root/.cache/uv uv sync --frozen --no-dev --no-ins
 
 FROM dependencies AS scan-dependencies
 RUN --mount=type=cache,target=/root/.cache/uv uv sync --frozen --no-dev --group scanner --no-install-project
+COPY scripts/vendor-spdx.py /tmp/vendor-spdx.py
+RUN python /tmp/vendor-spdx.py /opt/spdx/templates.json
 
 FROM ${PYTHON_IMAGE} AS app-base
 RUN apt-get -o Acquire::Retries=3 update && apt-get -o Acquire::Retries=3 install -y --no-install-recommends git ca-certificates \
@@ -49,11 +51,12 @@ ENV SCANCODE_CACHE=/home/app/.cache/scancode/runtime \
     SCANCODE_PACKAGE_INDEX_CACHE=/home/app/.cache/scancode/package-index
 USER root
 RUN apt-get -o Acquire::Retries=3 update && apt-get -o Acquire::Retries=3 install -y --no-install-recommends \
-    libmagic1 libgomp1 libxml2 libzstd1 libbz2-1.0 liblzma5 zlib1g \
+    libmagic1 libgomp1 libxml2 libzstd1 libbz2-1.0 liblzma5 zlib1g openjdk-17-jre-headless \
     && rm -rf /var/lib/apt/lists/* \
     && mkdir -p /home/app/.cache/scancode \
     && chown -R app:app /home/app
 COPY --from=scan-dependencies /app/.venv /app/.venv
+COPY --from=scan-dependencies /opt/spdx /opt/spdx
 USER app
 CMD ["celery", "-A", "config", "worker", "--loglevel=INFO", "--queues=scan", "--concurrency=2", "--max-tasks-per-child=10"]
 

@@ -9,7 +9,7 @@ CI 仅由 `dev-*` 标签触发，先拉取远端 `main` 并验证标签提交属
 | Docker target | 用途 | 运行时 |
 |---|---|---|
 | `web` | Web、普通 Worker、单实例 Beat、一次性初始化 | Python 3.12，冻结普通依赖，无 Node，无 ScanCode |
-| `scanner` | `scan` 队列 | 普通依赖 + uv `scanner` group，原生扫描库 |
+| `scanner` | `scan` 队列 | 普通依赖 + uv `scanner` group，原生扫描库、Java 17、固定版本 SPDX 离线模板 |
 | `postgres` | PostgreSQL 17、持续 WAL 归档 | PostgreSQL + pgBackRest，应用无访问 Docker socket |
 | `maintenance` | `maintenance` 队列、独立备份计时器、离线恢复 | 同一普通 Python 环境 + PG 17 二进制 + pgBackRest |
 
@@ -50,6 +50,8 @@ Gunicorn 访问日志只记录连接 IP、方法、状态和耗时，不记录 U
 - 维护容器的独立计时器按上海时间每天 03:15 备份：星期日全量，其他日差异；缺首个全量或全量过期七天时改作全量。它不启动第二个 Celery Beat，DB/Redis 不可用时仍可运行 pgBackRest。
 
 `WORK_ROOT=/app/var/work` 在 Web、普通/扫描 Worker 之间共享。动态 ScanCode 索引是服务器生成的可信缓存，不能从用户仓库导入 pickle。同一策略 SHA 仍须验证检测器版本及索引校验和；丢失或损坏时重新构建，路径包含同步 generation，不复用损坏目录。数据库恢复不要求保留 WORK 缓存，恢复后正常来源同步负责重建。维护工作目录 `/var/lib/restore/work` 独立；源数据库卷在维护容器中只读。
+
+许可证引擎 `policy-text-v3` 使用 SPDX 官方模板界定可替换、可省略内容；固定条款仍完整匹配，授权分类仍来自策略仓库。模板在镜像构建时校验固定来源 SHA-256 并安装到 `/opt/spdx/templates.json`，扫描不联网更新模板。Java 仅在扫描子进程首次使用时启动，Web/普通 Worker 不安装它。升级后须同步许可证策略；即使源 SHA 未变，检测器版本变化也会重建索引并重新投递审核。细节见 [扫描器说明](../licensecheck/README.md)。
 
 ## 恢复脚本接口
 

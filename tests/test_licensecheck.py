@@ -14,6 +14,7 @@ from pathlib import Path
 
 import pytest
 
+from licensecheck import spdx
 from licensecheck.engine import (
     CandidateValidationError,
     PolicyArtifactError,
@@ -138,8 +139,7 @@ def test_unparsed_placeholder_copyright_holder_requires_review(policy):
     MIT.replace("The above copyright notice and this permission notice shall be included in\n"
                 "all copies or substantial portions of the Software.", ""),
     "\n".join(MIT.splitlines()[4:10]),
-    MIT.replace("Copyright (c) 2020 Alice Example",
-                "Copyright (c) 2026 Bob Example. Use only for non-commercial purposes."),
+    MIT.replace("The above copyright notice", "Use only for non-commercial purposes. The above copyright notice"),
 ])
 def test_changed_clauses_fragments_and_added_restrictions_do_not_pass(policy, changed):
     result = scan(policy, {"LICENSE": changed})
@@ -175,6 +175,104 @@ def test_entire_concatenated_policy_texts_are_required(policy):
     assert scan(policy, {"LICENSE": MIT + "\n" + CUSTOM})["decision"] == "published"
     assert scan(policy, {"LICENSE": MIT + "\n" + RESTRICTED})["decision"] == "needs_review"
     assert scan(policy, {"LICENSE": MIT + "\nExcept commercial uses.\n" + CUSTOM})["decision"] == "needs_review"
+
+
+@pytest.mark.parametrize("changed", [
+    MIT.replace("2020 Alice Example", "2026 Another Author"),
+    MIT.replace("2020 Alice Example", "2026 张三 <zhang@example.test>\nCopyright © 2025 开源社区"),
+    MIT.replace("Copyright (c) 2020 Alice Example", ""),
+    MIT.replace("MIT License", "The MIT License (MIT)"),
+    MIT.replace("MIT License", ""),
+    MIT.replace("without limitation the rights", "without limitation on the rights"),
+    MIT.replace("THE AUTHORS OR COPYRIGHT HOLDERS", "张三和项目贡献者"),
+    MIT.replace("Software", "Materials").replace("SOFTWARE IS", "MATERIALS ARE").replace("SOFTWARE", "MATERIALS"),
+])
+def test_spdx_variable_and_optional_fields_do_not_require_exact_policy_text(policy, changed):
+    result = scan(policy, {"LICENSE": changed})
+    assert result["decision"] == "published"
+    assert result["evidence"]["files"][0]["complete_text_coverage"]
+
+
+def test_spdx_does_not_interpret_the_contents_of_declared_variables(policy):
+    # The matching boundary is SPDX's template, not validation of holder
+    # contents. MIT's copyright field is .{0,5000}; its legal meaning is not
+    # evaluated here. Fixed text and additions outside these fields stay strict.
+    changed = MIT.replace("2020 Alice Example", "2026 Bob Example. Use only for non-commercial purposes.")
+    result = scan(policy, {"LICENSE": changed})
+    assert result["decision"] == "published"
+    assert result["evidence"]["files"][0]["spdx_template_matches"]
+
+
+@pytest.fixture(scope="module")
+def standard_policy(tmp_path_factory):
+    path = tmp_path_factory.mktemp("spdx-policy")
+    denied = {"SSPL-1.0", "PolyForm-Noncommercial-1.0.0", "PolyForm-Small-Business-1.0.0"}
+    texts = {identifier: spdx.templates()[identifier]["text"]
+             for identifier in ("MIT", "BSD-3-Clause", "ISC", "Apache-2.0", "AGPL-3.0-only", *sorted(denied))}
+    files = {f"{'blacklist' if identifier in denied else 'whitelist'}/{number}": text
+             for number, (identifier, text) in enumerate(texts.items())}
+    return (compile_policy(files, path), path), texts
+
+
+@pytest.mark.parametrize("identifier", ["PolyForm-Noncommercial-1.0.0", "PolyForm-Small-Business-1.0.0"])
+def test_polyform_official_texts_enable_their_templates(standard_policy, identifier):
+    # These official templates contain literal Markdown; stripping it first
+    # would reject the official exemplars and disable their variable fields.
+    policy, texts = standard_policy
+    manifest, _ = policy
+    assert any(identifier in record["spdx_templates"] for record in manifest["policies"].values())
+    assert scan(policy, {"LICENSE": texts[identifier]})["decision"] == "rejected"
+
+
+@pytest.mark.parametrize("identifier", ["MIT", "BSD-3-Clause", "ISC", "Apache-2.0", "AGPL-3.0-only"])
+def test_official_standard_texts_and_changed_fixed_clauses(standard_policy, identifier):
+    policy, texts = standard_policy
+    text = texts[identifier]
+    assert scan(policy, {"LICENSE": text})["decision"] == "published"
+    assert scan(policy, {"LICENSE": text + "\nCommercial use is prohibited.\n"})["decision"] == "needs_review"
+
+
+def test_bsd_and_isc_organization_fields(standard_policy):
+    policy, texts = standard_policy
+    bsd = texts["BSD-3-Clause"].replace("<year>", "2026").replace("<owner>", "开源社区")
+    bsd = bsd.replace("<organization>", "Example Project").replace("<copyright holder>", "Example Project")
+    isc = texts["ISC"].replace("<YEAR>", "2026").replace("<OWNER>", "张三")
+    isc = isc.replace("THE AUTHOR", "EXAMPLE PROJECT CONTRIBUTORS")
+    assert scan(policy, {"LICENSES/bsd": bsd, "LICENSES/isc": isc})["decision"] == "published"
+
+
+def test_apache_optional_appendix_and_gnu_https(standard_policy):
+    policy, texts = standard_policy
+    apache = texts["Apache-2.0"].split("APPENDIX:")[0]
+    assert len(apache) < len(texts["Apache-2.0"])
+    assert scan(policy, {"LICENSE": apache})["decision"] == "published"
+    agpl = texts["AGPL-3.0-only"].replace("http://", "https://")
+    assert scan(policy, {"LICENSE": agpl})["decision"] == "published"
+
+
+def test_template_bundles_preserve_every_policy_class(policy, standard_policy):
+    changed = MIT.replace("2020 Alice Example", "2026 Another Author").replace("MIT License", "")
+    assert scan(policy, {"LICENSE": changed + "\n" + CUSTOM})["decision"] == "published"
+    assert scan(policy, {"LICENSE": RESTRICTED + "\n" + changed})["decision"] == "needs_review"
+    assert scan(policy, {"LICENSE": changed + "\n" + RESTRICTED})["decision"] == "needs_review"
+    standard, texts = standard_policy
+    assert scan(standard, {"LICENSE": texts["SSPL-1.0"]})["decision"] == "rejected"
+    mixed = scan(standard, {"LICENSE": changed + "\n" + texts["SSPL-1.0"]})
+    assert mixed["decision"] == "needs_review"
+
+
+def test_native_label_on_modified_policy_does_not_enable_its_template(tmp_path):
+    source = MIT.replace("and/or sell", "and/or not sell")
+    manifest = compile_policy({"whitelist/mit": source}, tmp_path)
+    assert next(iter(manifest["policies"].values()))["spdx_templates"] == []
+    assert scan_candidates({"LICENSE": MIT}, manifest, tmp_path)["decision"] == "needs_review"
+    assert scan_candidates({"LICENSE": source}, manifest, tmp_path)["decision"] == "published"
+
+
+def test_template_equivalent_black_white_sources_conflict(tmp_path):
+    changed = MIT.replace("MIT License", "").replace("THE AUTHORS OR COPYRIGHT HOLDERS", "OTHER CONTRIBUTORS")
+    with pytest.raises(PolicyCompilationError, match="Conflicting"):
+        compile_policy({"whitelist/a": MIT, "blacklist/b": changed}, tmp_path)
 
 
 def test_filename_changes_leave_policy_identity_unchanged(tmp_path):
