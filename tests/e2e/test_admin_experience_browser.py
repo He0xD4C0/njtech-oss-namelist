@@ -84,12 +84,15 @@ def test_chinese_management_navigation_and_configuration(page, live_server, mana
 
 def test_search_evidence_recheck_and_announcement_editor(page, live_server, management_content, artifact_dir):
     claim, result = management_content
+    search_requests = []
+    page.on("request", lambda request: search_requests.append(request.url) if "/admin/search/?" in request.url else None)
     page.goto(live_server.url + "/admin/")
     page.get_by_text("搜索管理功能…", exact=True).click()
     page.get_by_placeholder("输入关键词搜索", exact=True).fill("收录申请")
     result_link = page.locator("#command-results-list").get_by_role("link").filter(has_text="收录申请")
     expect(result_link).to_be_visible()
     expect(page.locator("#command-results-note")).to_contain_text("找到")
+    assert len(search_requests) == 1, "A completed search must not trigger another search request"
     result_link.click()
     search = page.locator('#searchbar')
     search.fill("member/project")

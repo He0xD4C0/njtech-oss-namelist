@@ -28,7 +28,8 @@ document.addEventListener('DOMContentLoaded', () => {
   const commandSearch = document.getElementById('search-input-command');
   if (commandSearch && window.htmx) {
     // Input events also cover pasted text and completed input-method composition.
-    commandSearch.setAttribute('hx-trigger', 'input changed delay:500ms, search');
+    // Unfold emits "search" after each response; listening to it would repeat requests.
+    commandSearch.setAttribute('hx-trigger', 'input changed delay:500ms');
     window.htmx.process(commandSearch);
   }
   const configuration = document.querySelector('[data-config-selected]');
