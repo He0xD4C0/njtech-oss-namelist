@@ -28,7 +28,7 @@ def claim():
         platform="github", platform_id="1", full_name="member/project", name="project", owner_id="1",
         html_url="https://github.com/member/project", clone_url="https://github.com/member/project.git",
     )
-    return Submission.objects.create(user=user, repository=repository, status="needs_review", reason="许可证需要处理")
+    return Submission.objects.create(user=user, repository=repository, status="needs_review", reason="许可证需要处理 / License needs attention")
 
 
 @pytest.mark.parametrize("path", ["/admin/", "/manage/settings/", "/admin/core/user/", "/admin/bulletins/announcement/add/"])
@@ -48,7 +48,7 @@ def test_management_is_chinese_without_changing_public_preference(client, manage
 
 
 def test_dashboard_filters_and_search_link_to_readable_evidence(client, manager, claim):
-    run = SyncRun.objects.create(kind="documents", status="queue-failed", message="任务服务不可用")
+    run = SyncRun.objects.create(kind="documents", status="queue-failed", message="任务服务不可用 / Task service unavailable")
     result = AuditResult.objects.create(
         submission=claim, generation=1, source_sha="a" * 40, policy_sha="b" * 40,
         detector_version="test", decision="needs_review", evidence={"license": "<script>unsafe()</script>"},
@@ -59,12 +59,22 @@ def test_dashboard_filters_and_search_link_to_readable_evidence(client, manager,
     response = client.get(card["url"], {"q": "member/project"})
     assert list(response.context["cl"].queryset) == [claim]
     assert "member/project" in response.content.decode()
+    assert "License needs attention" not in response.content.decode()
     detail = client.get(reverse("admin:repositories_submission_change", args=[claim.pk]))
+    assert "许可证需要处理" in detail.content.decode()
+    assert "License needs attention" not in detail.content.decode()
     assert reverse("admin:repositories_auditresult_change", args=[result.pk]) in detail.content.decode()
     evidence = client.get(reverse("admin:repositories_auditresult_change", args=[result.pk])).content.decode()
     assert "&lt;script&gt;" in evidence and "<script>unsafe()" not in evidence
     failures = client.get("/admin/core/syncrun/?status=failed")
     assert list(failures.context["cl"].queryset) == [run]
+    for path in ("/admin/core/syncrun/", reverse("admin:core_syncrun_change", args=[run.pk]), "/manage/settings/"):
+        content = client.get(path).content.decode()
+        assert "任务服务不可用" in content and "Task service unavailable" not in content
+    claim.refresh_from_db()
+    run.refresh_from_db()
+    assert claim.reason == "许可证需要处理 / License needs attention"
+    assert run.message == "任务服务不可用 / Task service unavailable"
 
 
 def test_staff_has_business_access_without_private_configuration(client, claim):

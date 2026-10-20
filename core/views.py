@@ -29,7 +29,7 @@ from .forms import (
     SMTPTestForm,
     group_title,
 )
-from .i18n import text
+from .i18n import management_message, text
 from .initialization import (
     SETUP_STEPS,
     STEP_GROUPS,
@@ -443,6 +443,7 @@ def configuration(request):
         run.recoverable = state == "recoverable"
         run.kind_label = TASK_KIND_LABELS.get(run.kind, run.kind)
         run.status_label = SYNC_LABELS.get(run.status, (run.status,))[0]
+        run.management_message = management_message(run.message)
     response = render(
         request,
         "core/configuration.html",

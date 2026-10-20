@@ -4,6 +4,7 @@ from django.utils.html import format_html, format_html_join
 from unfold.admin import ModelAdmin
 
 from core.admin import formatted_json
+from core.i18n import management_message
 
 from .models import AuditDispatch, AuditResult, LicensePolicy, Repository, StarSnapshot, Submission
 
@@ -37,16 +38,20 @@ class SubmissionAdmin(EvidenceAdmin):
     actions = ["recheck"]
     search_help_text = "按仓库完整名称或申请人的用户名搜索。"
     fieldsets = (
-        ("收录状态", {"fields": ("repository", "user", "status", "reason", "license_labels", "changed_at")}),
+        ("收录状态", {"fields": ("repository", "user", "status", "reason_detail", "license_labels", "changed_at")}),
         ("机审证据", {"fields": ("audited_head", "audited_policy", "audited_detector", "generation", "audit_history"),
                       "description": "请根据机审证据排查原因。许可证规则由独立策略仓库维护，同步后可重新运行机审。"}),
         ("收录与统计", {"fields": ("created_at", "published_at", "baseline_at", "baseline_stars"), "classes": ("collapse",)}),
     )
-    readonly_fields = ("audit_history",)
+    readonly_fields = ("audit_history", "reason_detail")
 
     @admin.display(description="处理原因")
     def reason_summary(self, obj):
-        return obj.reason[:100] or "—"
+        return self.reason_detail(obj)[:100]
+
+    @admin.display(description="处理原因")
+    def reason_detail(self, obj):
+        return management_message(obj.reason) or "—"
 
     @admin.display(description="最近五次机审")
     def audit_history(self, obj):

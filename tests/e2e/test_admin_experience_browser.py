@@ -21,12 +21,12 @@ def management_content(session_login, page, live_server):
         platform="github", platform_id="1", name="project", full_name="member/project", owner_id="1",
         html_url="https://github.com/member/project", clone_url="https://github.com/member/project.git",
     )
-    claim = Submission.objects.create(user=member, repository=repository, status="needs_review", reason="许可证需要处理")
+    claim = Submission.objects.create(user=member, repository=repository, status="needs_review", reason="许可证需要处理 / License needs attention")
     result = AuditResult.objects.create(
         submission=claim, generation=1, source_sha="a" * 40, policy_sha="b" * 40,
         decision="needs_review", detector_version="test", evidence={"许可证": "需要更新策略", "路径": "LICENSE"},
     )
-    SyncRun.objects.create(kind="documents", status="queue-failed", message="测试任务服务不可用")
+    SyncRun.objects.create(kind="documents", status="queue-failed", message="测试任务服务不可用 / Test task service unavailable")
     session_login(manager)
     page.context.add_cookies([{"name": "django_language", "value": "en", "url": live_server.url}])
     return claim, result
@@ -75,6 +75,7 @@ def test_chinese_management_navigation_and_configuration(page, live_server, mana
     page.screenshot(path=str(artifact_dir / f"management-settings-{width}-{theme}.png"), full_page=True)
     navigation.get_by_role("link", name="任务状态", exact=True).click()
     expect(page.get_by_text("同步政策正文 · 任务未能提交，请重试；持续失败时请检查任务服务。", exact=True)).to_be_visible()
+    expect(page.locator("#task-status")).not_to_contain_text("Test task service unavailable")
     assert page.evaluate("document.documentElement.scrollWidth <= innerWidth")
     assert not errors
     page.goto(live_server.url + "/")
@@ -94,11 +95,13 @@ def test_search_evidence_recheck_and_announcement_editor(page, live_server, mana
     expect(page.locator("#command-results-note")).to_contain_text("找到")
     assert len(search_requests) == 1, "A completed search must not trigger another search request"
     result_link.click()
+    expect(page.locator("#result_list")).not_to_contain_text("License needs attention")
     search = page.locator('#searchbar')
     search.fill("member/project")
     search.press("Enter")
     page.get_by_role("link", name="GitHub · member/project", exact=True).click()
     expect(page.get_by_text("许可证需要处理", exact=True)).to_be_visible()
+    expect(page.locator("#content")).not_to_contain_text("License needs attention")
     page.locator(f'a[href="{reverse("admin:repositories_auditresult_change", args=[result.pk])}"]').click()
     expect(page.locator(".admin-evidence")).to_contain_text('"路径": "LICENSE"')
     page.screenshot(path=str(artifact_dir / "management-evidence.png"), full_page=True)

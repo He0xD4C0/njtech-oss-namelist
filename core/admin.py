@@ -9,6 +9,7 @@ from django.urls import reverse
 from django.utils.html import format_html
 from unfold.admin import ModelAdmin
 
+from .i18n import management_message
 from .models import (
     AuditEvent,
     PendingAvatarDeletion,
@@ -203,11 +204,15 @@ class TaskStatusFilter(admin.SimpleListFilter):
 
 @admin.register(SyncRun)
 class SyncRunAdmin(PrivateReadOnlyAdmin):
-    list_display = ("task_kind", "task_status", "message", "created_at")
+    list_display = ("task_kind", "task_status", "task_message", "created_at")
     list_filter = (TaskStatusFilter,)
     search_fields = ("message", "source_sha")
-    fields = ("task_kind", "task_status", "message", "source_sha", "created_at", "lease_expires_at")
-    readonly_fields = ("task_kind", "task_status")
+    fields = ("task_kind", "task_status", "task_message", "source_sha", "created_at", "lease_expires_at")
+    readonly_fields = ("task_kind", "task_status", "task_message")
+
+    @admin.display(description="结果说明")
+    def task_message(self, obj):
+        return management_message(obj.message) or "—"
 
     @admin.display(description="任务类型", ordering="kind")
     def task_kind(self, obj):
