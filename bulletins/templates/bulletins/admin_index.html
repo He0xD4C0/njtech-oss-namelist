@@ -1,1 +1,16 @@
-{% extends 'admin/index.html' %}{% load static %}
+{% extends 'admin/index.html' %}{% load unfold %}
+{% block content %}
+<div class="admin-overview">
+  <p class="text-subtle">先处理待办，再查看仓库、公告和站点运行状态。</p>
+  <div class="admin-overview-cards">
+    {% for card in overview_cards %}<a href="{{ card.url }}" class="admin-overview-card"><span>{{ card.title }}</span><strong>{{ card.count }}</strong><span>查看列表 →</span></a>{% endfor %}
+  </div>
+  <div class="flex flex-wrap gap-3">
+    {% url 'admin:repositories_submission_changelist' as submissions_url %}{% component 'unfold/components/button.html' with href=submissions_url %}处理收录申请{% endcomponent %}
+    {% url 'admin:bulletins_announcement_add' as announcement_url %}{% component 'unfold/components/button.html' with href=announcement_url variant='secondary' %}发布公告{% endcomponent %}
+    {% if user.is_superuser %}{% url 'core:configuration' as configuration_url %}{% component 'unfold/components/button.html' with href=configuration_url variant='secondary' %}站点配置{% endcomponent %}{% endif %}
+  </div>
+  <p class="text-subtle">收录状态由机审更新；许可证策略需要在独立策略仓库中维护。</p>
+</div>
+{{ block.super }}
+{% endblock %}

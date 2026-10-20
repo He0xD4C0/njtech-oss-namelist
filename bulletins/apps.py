@@ -4,6 +4,7 @@ from django.apps import AppConfig
 class BulletinsConfig(AppConfig):
     default_auto_field = "django.db.models.BigAutoField"
     name = "bulletins"
+    verbose_name = "公告管理"
 
     def ready(self):
         from django.contrib import admin

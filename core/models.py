@@ -9,17 +9,17 @@ username_validator = RegexValidator(r"^[a-z0-9_-]{3,32}$", "使用 3–32 位小
 
 
 class User(AbstractUser):
-    username = models.CharField(max_length=32, unique=True, validators=[username_validator])
+    username = models.CharField(verbose_name="用户名", max_length=32, unique=True, validators=[username_validator])
     # Compatibility copy of the verified primary EmailAddress, never an identity.
-    email = models.EmailField(blank=True)
-    full_name = models.CharField(max_length=150, blank=True)
-    public_email = models.BooleanField(default=False)
+    email = models.EmailField(verbose_name="默认邮箱", blank=True)
+    full_name = models.CharField(verbose_name="姓名", max_length=150, blank=True)
+    public_email = models.BooleanField(verbose_name="公开默认邮箱", default=False)
     language = models.CharField(
-        max_length=16, blank=True, choices=[("zh-hans", "简体中文"), ("en", "English")]
+        verbose_name="语言", max_length=16, blank=True, choices=[("zh-hans", "简体中文"), ("en", "English")]
     )
-    quota = models.PositiveIntegerField(default=64)
-    avatar_key = models.CharField(max_length=300, blank=True)
-    avatar_revision = models.PositiveIntegerField(default=0)
+    quota = models.PositiveIntegerField(verbose_name="仓库配额", default=64)
+    avatar_key = models.CharField(verbose_name="头像存储路径", max_length=300, blank=True)
+    avatar_revision = models.PositiveIntegerField(verbose_name="头像版本", default=0)
 
     def clean(self):
         super().clean()
@@ -51,6 +51,8 @@ class User(AbstractUser):
         return super().delete(*args, **kwargs)
 
     class Meta(AbstractUser.Meta):
+        verbose_name = "用户"
+        verbose_name_plural = verbose_name
         constraints = [
             models.CheckConstraint(
                 condition=(models.Q(username="admin", is_superuser=True, is_staff=True, is_active=True)
@@ -61,55 +63,96 @@ class User(AbstractUser):
 
 
 class RuntimeSetting(models.Model):
-    key = models.CharField(max_length=80, unique=True)
-    value = models.TextField(blank=True)
-    secret = models.BooleanField(default=False)
-    updated_at = models.DateTimeField(auto_now=True)
-    updated_by = models.ForeignKey(User, null=True, on_delete=models.SET_NULL)
+    key = models.CharField(verbose_name="配置项", max_length=80, unique=True)
+    value = models.TextField(verbose_name="配置值", blank=True)
+    secret = models.BooleanField(verbose_name="敏感配置", default=False)
+    updated_at = models.DateTimeField(verbose_name="更新时间", auto_now=True)
+    updated_by = models.ForeignKey(User, verbose_name="更新人", null=True, on_delete=models.SET_NULL)
+
+    def __str__(self):
+        return self.key
+
+    class Meta:
+        verbose_name = "运行时配置"
+        verbose_name_plural = verbose_name
 
 
 class SiteState(models.Model):
-    id = models.PositiveSmallIntegerField(primary_key=True, default=1, editable=False)
-    activated_at = models.DateTimeField(null=True, blank=True)
-    bootstrap_user = models.ForeignKey(User, null=True, blank=True, on_delete=models.SET_NULL)
+    id = models.PositiveSmallIntegerField(verbose_name="编号", primary_key=True, default=1, editable=False)
+    activated_at = models.DateTimeField(verbose_name="激活时间", null=True, blank=True)
+    bootstrap_user = models.ForeignKey(User, verbose_name="初始管理员", null=True, blank=True, on_delete=models.SET_NULL)
+
+    def __str__(self):
+        return "站点状态"
+
+    class Meta:
+        verbose_name = "站点状态"
+        verbose_name_plural = verbose_name
 
 
 class PolicyDocument(models.Model):
     kind = models.CharField(
-        max_length=16, choices=[("privacy", "Privacy"), ("terms", "Terms"), ("inclusion", "Inclusion")]
+        verbose_name="类型", max_length=16, choices=[("privacy", "Privacy"), ("terms", "Terms"), ("inclusion", "Inclusion")]
     )
-    language = models.CharField(max_length=16)
-    body = models.TextField()
-    source_sha = models.CharField(max_length=64)
-    updated_at = models.DateTimeField(auto_now=True)
+    language = models.CharField(verbose_name="语言", max_length=16)
+    body = models.TextField(verbose_name="正文")
+    source_sha = models.CharField(verbose_name="来源版本", max_length=64)
+    updated_at = models.DateTimeField(verbose_name="更新时间", auto_now=True)
+
+    def __str__(self):
+        kind = {"privacy": "隐私政策", "terms": "使用条款", "inclusion": "收录规则"}.get(self.kind, self.kind)
+        return f"{kind} · {self.language}"
 
     class Meta:
+        verbose_name = "政策正文"
+        verbose_name_plural = verbose_name
         constraints = [models.UniqueConstraint(fields=["kind", "language"], name="unique_policy_language")]
 
 
 class PolicyConsent(models.Model):
-    user = models.ForeignKey(User, on_delete=models.CASCADE)
-    language = models.CharField(max_length=16)
-    versions = models.JSONField()
-    created_at = models.DateTimeField(auto_now_add=True)
+    user = models.ForeignKey(User, verbose_name="用户", on_delete=models.CASCADE)
+    language = models.CharField(verbose_name="语言", max_length=16)
+    versions = models.JSONField(verbose_name="同意的政策版本")
+    created_at = models.DateTimeField(verbose_name="创建时间", auto_now_add=True)
+
+    def __str__(self):
+        return f"{self.user.username} · 政策同意记录 #{self.pk}"
+
+    class Meta:
+        verbose_name = "政策同意记录"
+        verbose_name_plural = verbose_name
 
 
 class AuditEvent(models.Model):
-    actor = models.ForeignKey(User, null=True, on_delete=models.SET_NULL)
-    action = models.CharField(max_length=100)
-    subject = models.CharField(max_length=200, blank=True)
-    detail = models.JSONField(default=dict)
-    created_at = models.DateTimeField(auto_now_add=True)
+    actor = models.ForeignKey(User, verbose_name="操作人", null=True, on_delete=models.SET_NULL)
+    action = models.CharField(verbose_name="操作", max_length=100)
+    subject = models.CharField(verbose_name="对象", max_length=200, blank=True)
+    detail = models.JSONField(verbose_name="详情", default=dict)
+    created_at = models.DateTimeField(verbose_name="创建时间", auto_now_add=True)
+
+    def __str__(self):
+        return f"操作记录 #{self.pk} · {self.subject}"
+
+    class Meta:
+        verbose_name = "配置操作记录"
+        verbose_name_plural = verbose_name
 
 
 class SyncRun(models.Model):
-    kind = models.CharField(max_length=32)
-    status = models.CharField(max_length=16)
-    source_sha = models.CharField(max_length=64, blank=True)
-    message = models.TextField(blank=True)
-    created_at = models.DateTimeField(auto_now_add=True)
-    execution_token = models.UUIDField(null=True, blank=True, editable=False)
-    lease_expires_at = models.DateTimeField(null=True, blank=True, editable=False)
+    kind = models.CharField(verbose_name="类型", max_length=32)
+    status = models.CharField(verbose_name="状态", max_length=16)
+    source_sha = models.CharField(verbose_name="来源版本", max_length=64, blank=True)
+    message = models.TextField(verbose_name="结果说明", blank=True)
+    created_at = models.DateTimeField(verbose_name="创建时间", auto_now_add=True)
+    execution_token = models.UUIDField(verbose_name="执行标识", null=True, blank=True, editable=False)
+    lease_expires_at = models.DateTimeField(verbose_name="执行权到期时间", null=True, blank=True, editable=False)
+
+    def __str__(self):
+        return f"任务 #{self.pk}"
+
+    class Meta:
+        verbose_name = "同步与备份任务"
+        verbose_name_plural = verbose_name
 
 
 class SourceSyncState(models.Model):
@@ -118,8 +161,15 @@ class SourceSyncState(models.Model):
 
 
 class PendingAvatarDeletion(models.Model):
-    key = models.CharField(max_length=300, unique=True)
-    created_at = models.DateTimeField(auto_now_add=True)
+    key = models.CharField(verbose_name="配置项", max_length=300, unique=True)
+    created_at = models.DateTimeField(verbose_name="创建时间", auto_now_add=True)
+
+    def __str__(self):
+        return self.key
+
+    class Meta:
+        verbose_name = "待清理头像"
+        verbose_name_plural = verbose_name
 
 
 class BackupConfiguration(models.Model):

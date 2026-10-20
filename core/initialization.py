@@ -68,6 +68,11 @@ TASKS = (
     ("review", "review", "检查并激活", "Review and activate", True),
 )
 
+TASK_KIND_LABELS = {
+    "documents": "同步政策正文", "licenses": "同步许可证策略", "restore": "备份恢复演练", "alert": "运维告警",
+    "backup-test": "备份连接测试", "backup-apply": "启用备份", "backup-backup": "执行全量备份",
+}
+
 SYNC_LABELS = {
     "pending": ("来源已保存，尚未同步", "Source saved; not synced yet"),
     "queued": ("请求已提交，正在等待执行", "Queued; waiting for a worker"),

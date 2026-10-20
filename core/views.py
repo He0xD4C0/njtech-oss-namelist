@@ -33,6 +33,8 @@ from .i18n import text
 from .initialization import (
     SETUP_STEPS,
     STEP_GROUPS,
+    SYNC_LABELS,
+    TASK_KIND_LABELS,
     activation_checks,
     backup_status,
     recovery_label,
@@ -356,13 +358,20 @@ def configuration(request):
         response = JsonResponse(public_status())
         response["Cache-Control"] = "no-store"
         return response
-    group = request.POST.get("group") if request.POST.get("action") in {"save", "backup-test"} else None
-    if request.method == "POST" and request.POST.get("action") == "save" and group not in CONFIG_GROUPS:
-        return HttpResponseBadRequest("Unknown configuration group")
+    action = request.POST.get("action")
+    group = request.POST.get("group") if action in {"save", "backup-test", "test-smtp", "test-s3"} else None
+    if request.method == "POST":
+        allowed = {"save", "backup-test", "backup-apply", "backup-backup", "test-smtp", "test-s3",
+                   "license-webhook", "policy-webhook", "sync-documents", "sync-licenses", "recover-documents", "recover-licenses"}
+        expected_group = {"backup-test": "backup", "test-smtp": "smtp", "test-s3": "storage"}.get(action)
+        if action not in allowed or (action in {"save", "backup-test"} and group not in CONFIG_GROUPS) or (
+            expected_group and group and group != expected_group
+        ):
+            return HttpResponseBadRequest("无效的配置操作或分组")
     groups = configuration_groups(request.POST if group else None, group, admin_style=True, files=request.FILES if group else None)
     form = next((item["form"] for item in groups if item["key"] == group), None)
     new_secret = None
-    recipient_form = SMTPTestForm(request.POST if request.POST.get("action") == "test-smtp" else None)
+    recipient_form = SMTPTestForm(request.POST if request.POST.get("action") == "test-smtp" else None, admin_style=True)
     if request.method == "POST":
         action = request.POST.get("action")
         if action == "backup-test" and group == "backup" and form.is_valid():
@@ -378,7 +387,7 @@ def configuration(request):
             return redirect("/manage/settings/#backup")
         if action == "save" and form.is_valid():
             save_configuration(form, request.user)
-            messages.success(request, "配置已保存 / Configuration saved")
+            messages.success(request, "配置已保存。")
             return redirect("/manage/settings/#" + group)
         if action in ("license-webhook", "policy-webhook"):
             new_secret = secrets.token_urlsafe(48)
@@ -386,35 +395,45 @@ def configuration(request):
             set_setting(key, new_secret, user=request.user)
         if action == "test-smtp":
             try:
-                if not recipient_form.is_valid():
-                    messages.error(request, text("请填写有效的测试收件邮箱。", "Enter a valid test recipient."))
-                    return redirect("core:configuration")
-                send_smtp_test(recipient_form.cleaned_data["recipient"] or get_setting("smtp_from_email"))
-                set_setting("smtp_verified", "1", user=request.user)
-                messages.success(request, text("邮件服务器已接受测试邮件，请检查收件箱。", "The mail server accepted the test message. Check your inbox."))
+                valid = recipient_form.is_valid()
+                if form is not None:
+                    valid = form.is_valid() and valid
+                if valid:
+                    if form is not None:
+                        save_configuration(form, request.user)
+                    send_smtp_test(recipient_form.cleaned_data["recipient"] or get_setting("smtp_from_email"))
+                    set_setting("smtp_verified", "1", user=request.user)
+                    messages.success(request, "邮件服务器已接受测试邮件，请检查收件箱。")
+                    return redirect("/manage/settings/#smtp")
             except Exception as exc:
                 messages.error(request, mail_error(exc))
-            return redirect("core:configuration")
+                return redirect("/manage/settings/#smtp")
         if action == "test-s3":
             try:
                 from .avatar import test_storage
 
-                test_storage()
-                set_setting("s3_verified", "1", user=request.user)
-                messages.success(request, "S3 写入、回读和清理通过 / S3 write, readback and cleanup passed")
+                if form is None or form.is_valid():
+                    if form is not None:
+                        save_configuration(form, request.user)
+                    test_storage()
+                    set_setting("s3_verified", "1", user=request.user)
+                    messages.success(request, "头像存储写入、回读和清理测试通过。")
+                    return redirect("/manage/settings/#storage")
             except Exception:
-                messages.error(request, "S3 测试失败 / S3 test failed")
-            return redirect("core:configuration")
+                messages.error(request, "头像存储测试失败，请检查服务地址、存储桶和访问凭据。")
+                return redirect("/manage/settings/#storage")
         if action in ("recover-documents", "recover-licenses"):
             try:
                 run_id = int(request.POST.get("run_id", ""))
             except ValueError:
-                return HttpResponseBadRequest("Invalid sync run")
+                return HttpResponseBadRequest("无效的同步任务")
             queue_configuration_sync(request, action, recover_id=run_id)
-            return redirect("core:configuration")
+            return redirect("/manage/settings/#task-status")
         if action in ("sync-documents", "sync-licenses"):
-            queue_configuration_sync(request, action)
-            return redirect("core:configuration")
+            run = queue_configuration_sync(request, action)
+            if run and run.status != "queue-failed":
+                messages.info(request, "同步请求已处理，请查看任务状态。")
+            return redirect("/manage/settings/#task-status")
     from .sync import recovery_state
     sync_runs = list(SyncRun.objects.order_by("-created_at", "-pk")[:20])
     latest = {kind: SyncRun.objects.filter(kind=kind).order_by("-created_at", "-pk").values_list("pk", flat=True).first() for kind in ("documents", "licenses")}
@@ -422,12 +441,15 @@ def configuration(request):
         state = recovery_state(run) if latest.get(run.kind) == run.pk else ""
         run.recovery_label = recovery_label(state)
         run.recoverable = state == "recoverable"
+        run.kind_label = TASK_KIND_LABELS.get(run.kind, run.kind)
+        run.status_label = SYNC_LABELS.get(run.status, (run.status,))[0]
     response = render(
         request,
         "core/configuration.html",
-        {**admin.site.each_context(request), "title": "运行时配置 / Runtime configuration",
+        {**admin.site.each_context(request), "title": "站点配置",
          "groups": groups, "new_secret": new_secret, "backup_status": text(*backup_status().split(" / ")),
-         "sync_runs": sync_runs, "backup": public_status(), "recipient_form": recipient_form},
+         "sync_runs": sync_runs, "backup": public_status(), "recipient_form": recipient_form,
+         "selected_group": group or {"license-webhook": "licenses", "policy-webhook": "documents", "test-smtp": "smtp", "test-s3": "storage"}.get(action, "smtp")},
     )
     response["Cache-Control"] = "no-store"
     return response

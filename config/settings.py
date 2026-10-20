@@ -46,6 +46,7 @@ MIDDLEWARE = [
     "django.contrib.auth.middleware.AuthenticationMiddleware",
     "allauth.account.middleware.AccountMiddleware",
     "core.middleware.AccountReadinessMiddleware",
+    "core.middleware.ManagementLocaleMiddleware",
     "django.contrib.messages.middleware.MessageMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
 ]
@@ -227,7 +228,8 @@ UNFOLD = {
     "SITE_LOGO": "core.branding.logo_url",
     "SITE_TITLE": "南京工业大学开源软件仓库名录",
     "SITE_HEADER": "开源软件仓库名录",
-    "SHOW_LANGUAGES": True,
+    "SHOW_LANGUAGES": False,
+    "DASHBOARD_CALLBACK": "core.admin.dashboard",
     "SIDEBAR": {"show_search": True, "navigation": "core.admin.navigation"},
     "COLORS": {"primary": {
         "50": "#eff6ff", "100": "#dbeafe", "200": "#bfdbfe", "300": "#93c5fd",

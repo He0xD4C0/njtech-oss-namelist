@@ -1,0 +1,208 @@
+# Chinese translations for the management interface.
+msgid ""
+msgstr ""
+"Project-Id-Version: njtech-oss-namelist\n"
+"Language: zh_Hans\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Plural-Forms: nplurals=1; plural=0;\n"
+
+msgid "Add row"
+msgstr "添加一行"
+
+msgid "After you've created a user, you’ll be able to edit more user options."
+msgstr "创建用户后，可以编辑更多用户选项。"
+
+msgid "All applications"
+msgstr "全部管理模块"
+
+msgid "Apply Filters"
+msgstr "应用筛选"
+
+msgid "Available shortcuts"
+msgstr "可用快捷键"
+
+msgid "Changelist shortcuts"
+msgstr "列表快捷键"
+
+msgid "Choose file to upload"
+msgstr "选择要上传的文件"
+
+msgid "Click to cancel"
+msgstr "点击取消"
+
+msgid "Click to download"
+msgstr "点击下载"
+
+msgid "Command tool shortcuts"
+msgstr "快捷搜索的快捷键"
+
+msgid "Create new record"
+msgstr "创建记录"
+
+msgid "Dark"
+msgstr "深色"
+
+msgid "Dataset not found. No action performed."
+msgstr "未找到数据，未执行操作。"
+
+msgid "Date"
+msgstr "日期"
+
+msgid "Date from"
+msgstr "起始日期"
+
+msgid "Date to"
+msgstr "结束日期"
+
+msgid "Enter a new password for the user <strong>%(username)s</strong>."
+msgstr "为用户 <strong>%(username)s</strong> 设置新密码。"
+
+msgid "False"
+msgstr "否"
+
+msgid "Field <strong class=\"font-semibold\">{field_name}</strong> is not an autocomplete field. Please add it to the `autocomplete_fields` list."
+msgstr "字段 <strong class=\"font-semibold\">{field_name}</strong> 未配置自动补全，请在 autocomplete_fields 中设置。"
+
+msgid "Filters"
+msgstr "筛选"
+
+msgid "From"
+msgstr "从"
+
+msgid "General"
+msgstr "基本信息"
+
+msgid "Global shortcuts"
+msgstr "全局快捷键"
+
+msgid "Go back"
+msgstr "返回"
+
+msgid "Image preview"
+msgstr "图片预览"
+
+msgid "Light"
+msgstr "浅色"
+
+msgid "Navigate"
+msgstr "切换"
+
+msgid "Next"
+msgstr "下一项"
+
+msgid "No data"
+msgstr "暂无数据"
+
+msgid "No results found"
+msgstr "未找到结果"
+
+msgid "Nothing matched your search"
+msgstr "未找到匹配的内容"
+
+msgid "Open command tool"
+msgstr "打开快捷搜索"
+
+msgid "Open selection"
+msgstr "打开所选项"
+
+msgid "Open selection in new tab"
+msgstr "在新标签页打开所选项"
+
+msgid "Open shortcuts list"
+msgstr "查看快捷键"
+
+msgid "Previous"
+msgstr "上一项"
+
+msgid "Raw passwords are not stored, so there is no way to see this user’s password, but you can change the password using <a href=\"{}\" class=\"text-primary-600 dark:text-primary-500\">this form</a>."
+msgstr "系统不保存明文密码，无法查看原密码。可通过<a href=\"{}\" class=\"text-primary-600 dark:text-primary-500\">修改密码表单</a>设置新密码。"
+
+msgid "Recent searches"
+msgstr "最近搜索"
+
+msgid "Record picture"
+msgstr "记录图片"
+
+msgid "Reset filters"
+msgstr "重置筛选"
+
+msgid "Return to site"
+msgstr "返回公开站点"
+
+msgid "Run"
+msgstr "执行"
+
+msgid "Search apps and models..."
+msgstr "搜索管理功能…"
+
+msgid "Select"
+msgstr "选择"
+
+msgid "Select action"
+msgstr "选择操作"
+
+msgid "Select action to run"
+msgstr "选择要执行的操作"
+
+msgid "Select currency"
+msgstr "选择货币"
+
+msgid "Select format"
+msgstr "选择格式"
+
+msgid "Select record"
+msgstr "选择记录"
+
+msgid "Select value"
+msgstr "选择值"
+
+msgid "Submit"
+msgstr "提交"
+
+msgid "System"
+msgstr "跟随系统"
+
+msgid "This item will be deleted."
+msgstr "此项将被删除。"
+
+msgid "This page yielded into no results."
+msgstr "当前条件下暂无记录，可尝试修改搜索条件或重置筛选。"
+
+msgid "To"
+msgstr "至"
+
+msgid "Toggle dark/light mode"
+msgstr "切换深浅配色"
+
+msgid "Toggle filter"
+msgstr "展开或收起筛选"
+
+msgid "Toggle password visibility"
+msgstr "显示或隐藏密码"
+
+msgid "Toggle sidebar"
+msgstr "展开或收起管理导航"
+
+msgid "True"
+msgstr "是"
+
+msgid "Type to search"
+msgstr "输入关键词搜索"
+
+msgid "Value"
+msgstr "值"
+
+msgid "Welcome"
+msgstr "欢迎"
+
+msgid "You can not create nested object without parent"
+msgstr "请先创建上级记录，再添加下级记录。"
+
+msgid "You have been successfully logged out from the administration"
+msgstr "已退出管理平台。"
+
+msgid "\n            Found <span class=\"font-medium text-important\">%(counter)s</span> result in %(time)s seconds\n        "
+msgid_plural "\n            Found <span class=\"font-medium text-important\">%(counter)s</span> results in %(time)s seconds\n        "
+msgstr[0] "\n找到 <span class=\"font-medium text-important\">%(counter)s</span> 条结果，用时 %(time)s 秒\n        "

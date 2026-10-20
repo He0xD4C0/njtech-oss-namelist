@@ -8,25 +8,27 @@ class Announcement(models.Model):
         NORMAL = "normal", "普通公告"
         POLICY = "policy", "政策公告"
 
-    title = models.CharField(max_length=200)
-    body = models.TextField(help_text="Markdown。保存后立即应用，不保留旧正文。")
-    kind = models.CharField(max_length=10, choices=Kind, default=Kind.NORMAL)
+    title = models.CharField(verbose_name="标题", max_length=200)
+    body = models.TextField(verbose_name="正文", help_text="Markdown。保存后立即应用，不保留旧正文。")
+    kind = models.CharField(verbose_name="类型", max_length=10, choices=Kind, default=Kind.NORMAL)
     include_future_users = models.BooleanField(
-        default=True, help_text="关闭后仅面向创建时已存在的账号；截止时间不会随编辑改变。"
+        verbose_name="同时面向新用户", default=True, help_text="关闭后仅面向创建时已存在的账号；截止时间不会随编辑改变。"
     )
     expires_at = models.DateTimeField(
-        null=True, blank=True, help_text="留空表示永久有效；过期后仍保留公开正文。"
+        verbose_name="到期时间", null=True, blank=True, help_text="留空表示永久有效；过期后仍保留公开正文。"
     )
     creator = models.ForeignKey(
-        settings.AUTH_USER_MODEL, null=True, on_delete=models.SET_NULL, related_name="created_announcements"
+        settings.AUTH_USER_MODEL, verbose_name="创建人", null=True, on_delete=models.SET_NULL, related_name="created_announcements"
     )
-    creator_name = models.CharField(max_length=150)
-    editors = models.JSONField(default=list)
-    revision = models.PositiveIntegerField(default=1, editable=False)
-    created_at = models.DateTimeField(auto_now_add=True)
-    updated_at = models.DateTimeField(auto_now=True)
+    creator_name = models.CharField(verbose_name="创建人", max_length=150)
+    editors = models.JSONField(verbose_name="编辑者", default=list)
+    revision = models.PositiveIntegerField(verbose_name="版本", default=1, editable=False)
+    created_at = models.DateTimeField(verbose_name="创建时间", auto_now_add=True)
+    updated_at = models.DateTimeField(verbose_name="更新时间", auto_now=True)
 
     class Meta:
+        verbose_name = "公告"
+        verbose_name_plural = verbose_name
         ordering = ["-created_at", "-pk"]
 
     def __str__(self):

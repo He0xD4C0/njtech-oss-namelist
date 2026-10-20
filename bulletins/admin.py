@@ -20,11 +20,13 @@ class AnnouncementAdmin(ModelAdmin):
     search_fields = ("title", "body")
     readonly_fields = ("creator_name", "contributors", "revision", "created_at", "updated_at")
     fieldsets = (
-        ("正文 / Content", {"fields": ("title", "body")}),
-        ("展示规则 / Display rules", {"fields": ("kind", "include_future_users", "expires_at")}),
-        ("编辑信息 / Attribution", {"fields": ("creator_name", "contributors", "revision", "created_at", "updated_at")}),
+        ("公告正文", {"fields": ("title", "body")}),
+        ("展示规则", {"fields": ("kind", "include_future_users", "expires_at")}),
+        ("编辑信息", {"fields": ("creator_name", "contributors", "revision", "created_at", "updated_at")}),
     )
     actions = None
+    list_per_page = 50
+    warn_unsaved_form = True
 
     @admin.display(description="所有编辑者")
     def contributors(self, obj):

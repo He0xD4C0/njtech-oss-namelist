@@ -12,3 +12,29 @@
 .EasyMDEContainer .editor-preview, .EasyMDEContainer .editor-preview-side { overflow-wrap: anywhere; }
 
 .EasyMDEContainer .editor-toolbar button:focus-visible, [data-admin-navigation-toggle]:focus-visible { outline: 3px solid var(--color-primary-500); outline-offset: 3px; }
+
+.admin-overview, .admin-configuration { display: flex; flex-direction: column; gap: 1.5rem; min-width: 0; }
+.admin-overview { margin-bottom: 2rem; }
+.admin-overview-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 10rem), 1fr)); gap: 1rem; }
+.admin-overview-card, .admin-config-group { border: 1px solid var(--color-base-200); border-radius: .5rem; background: white; }
+.dark .admin-overview-card, .dark .admin-config-group { border-color: var(--color-base-800); background: var(--color-base-900); }
+.admin-overview-card { display: flex; flex-direction: column; gap: .5rem; padding: 1.25rem; }
+.admin-overview-card strong { font-size: 2rem; line-height: 1.2; }
+.admin-overview-card:hover { border-color: var(--color-primary-500); }
+.admin-config-navigation { display: flex; flex-wrap: wrap; gap: .5rem; }
+.admin-config-navigation a { padding: .5rem .75rem; border: 1px solid var(--color-base-200); border-radius: .375rem; }
+.dark .admin-config-navigation a { border-color: var(--color-base-700); }
+.admin-config-navigation a[aria-current] { background: var(--color-primary-600); color: white; border-color: transparent; }
+.admin-config-group, #task-status { scroll-margin-top: 1.5rem; }
+.admin-config-group > summary { display: flex; align-items: center; justify-content: space-between; gap: 1rem; padding: 1rem 1.25rem; cursor: pointer; }
+.admin-config-group > summary h2 { font-weight: 600; }
+.admin-config-group[open] > summary { border-bottom: 1px solid var(--color-base-200); }
+.dark .admin-config-group[open] > summary { border-color: var(--color-base-800); }
+.admin-config-group[open] > summary > span { display: none; }
+.admin-config-body { padding: 1.25rem; }
+.admin-config-body input:not([type=radio]):not([type=checkbox]), .admin-config-body select { max-width: 100%; }
+.admin-evidence { white-space: pre-wrap; overflow-wrap: anywhere; max-width: 100%; font-size: .8125rem; line-height: 1.6; }
+.admin-task-message { white-space: pre-wrap; overflow-wrap: anywhere; margin-top: .5rem; }
+.admin-config-navigation a:focus-visible, .admin-overview-card:focus-visible, .admin-config-group > summary:focus-visible { outline: 3px solid var(--color-primary-500); outline-offset: 3px; }
+html[lang^="zh"] .editor-statusbar .lines::before { content: '行数：'; }
+html[lang^="zh"] .editor-statusbar .words::before { content: '词数：'; }

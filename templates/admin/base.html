@@ -8,6 +8,6 @@
 {% endblock %}
 {% block header %}{{ block.super }}
 <div class="px-4 mb-4 flex justify-end">
-<label for="admin-color-mode" class="sr-only">{% ui '配色模式' 'Color mode' %}</label>
-<select id="admin-color-mode" data-theme-select class="border border-base-200 rounded-default p-2 bg-white dark:bg-base-900 dark:border-base-700" aria-label="{% ui '配色模式' 'Color mode' %}"><option value="auto">{% ui '跟随系统' 'System' %}</option><option value="light">{% ui '浅色' 'Light' %}</option><option value="dark">{% ui '深色' 'Dark' %}</option></select></div>
+<label for="admin-color-mode" class="sr-only">配色模式</label>
+<select id="admin-color-mode" data-theme-select class="border border-base-200 rounded-default p-2 bg-white dark:bg-base-900 dark:border-base-700" aria-label="配色模式"><option value="auto">跟随系统</option><option value="light">浅色</option><option value="dark">深色</option></select></div>
 {% endblock %}

@@ -396,11 +396,15 @@ class ConfigurationForm(forms.Form):
 class SMTPTestForm(forms.Form):
     recipient = forms.EmailField(required=False)
 
-    def __init__(self, *args, **kwargs):
+    def __init__(self, *args, admin_style=False, **kwargs):
         super().__init__(*args, **kwargs)
         self.fields["recipient"].label = text("测试收件邮箱", "Test recipient")
         self.fields["recipient"].initial = get_setting("smtp_from_email")
         self.fields["recipient"].help_text = text("默认发给发件邮箱自身，也可改为你能查看的邮箱；不需要先创建管理员。", "Defaults to the sender itself. You can use any inbox you can check; no administrator account is needed.")
+        if admin_style:
+            from unfold.widgets import INPUT_CLASSES
+
+            self.fields["recipient"].widget.attrs["class"] = " ".join(INPUT_CLASSES)
 
 
 class BootstrapAccountForm(forms.Form):

@@ -95,3 +95,19 @@ class AccountReadinessMiddleware:
                 ).exists():
                     return redirect("account_email")
         return self.get_response(request)
+
+
+class ManagementLocaleMiddleware:
+    """Keep management in Chinese without changing the public language preference."""
+
+    def __init__(self, get_response):
+        self.get_response = get_response
+
+    def __call__(self, request):
+        if request.path_info.startswith("/admin/") or request.path_info == reverse("core:configuration"):
+            request.LANGUAGE_CODE = "zh-hans"
+            with translation.override("zh-hans"):
+                response = self.get_response(request)
+                response["Content-Language"] = "zh-hans"
+                return response
+        return self.get_response(request)
