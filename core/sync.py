@@ -22,6 +22,9 @@ SOURCE_KEYS = {"documents": "policy_source_url", "licenses": "license_source_url
 def recovery_state(run):
     if run.status in {"failed", "queue-failed"}:
         return "recoverable"
+    if run.status in {"queued", "retrying"}:
+        expires = run.lease_expires_at or run.created_at + timedelta(minutes=5)
+        return "recoverable" if expires <= timezone.now() else ""
     if run.status != "running":
         return ""
     remaining = (run.lease_expires_at - timezone.now()).total_seconds() if run.lease_expires_at else 0
@@ -49,13 +52,20 @@ def queue_sync(kind, recover_id=None):
                 return run, False
             # Reuse this request and generation; a fresh execution token fences the old worker.
             run.status, run.execution_token, run.lease_expires_at = "queued", None, None
-            run.save(update_fields=["status", "execution_token", "lease_expires_at"])
+            run.attempts = 0
+            run.save(update_fields=["status", "execution_token", "lease_expires_at", "attempts"])
         else:
             if latest and latest.status in {"queued", "running", "retrying"}:
-                return latest, False
-            state.generation += 1
-            state.save(update_fields=["generation"])
-            run = SyncRun.objects.create(kind=kind, status="queued")
+                if recovery_state(latest) != "recoverable":
+                    return latest, False
+                run = latest
+                run.status, run.execution_token = "queued", None
+            else:
+                state.generation += 1
+                state.save(update_fields=["generation"])
+                run = SyncRun.objects.create(kind=kind, status="queued")
+        run.lease_expires_at = timezone.now() + timedelta(minutes=5)
+        run.save(update_fields=["status", "execution_token", "lease_expires_at"])
         try:
             # The consumer claims under the same row locks, after this short transaction commits.
             (sync_documents if kind == "documents" else sync_license_policy).delay(
@@ -137,7 +147,8 @@ class SyncLease:
         updated = SyncRun.objects.filter(
             pk=self.run.pk, status="running", execution_token=self.run.execution_token,
             lease_expires_at__gt=timezone.now(),
-        ).update(status=status, source_sha=sha, message="", execution_token=None, lease_expires_at=None)
+        ).update(status=status, source_sha=sha, message="", execution_token=None,
+                 lease_expires_at=timezone.now() + timedelta(minutes=5) if status == "retrying" else None)
         if not updated or self.lost.is_set():
             raise OwnershipLost
 
@@ -166,10 +177,19 @@ def execute_sync(task, kind, work, run_id=None, source=None, generation=None, bu
             wait = max(1, math.ceil((run.lease_expires_at - timezone.now()).total_seconds()) + 1)
         else:
             wait = 0
+            if run.attempts >= 5:
+                run.status, run.execution_token, run.lease_expires_at = "failed", None, None
+                run.message = "执行多次中断，已达到本次同步重试上限，请检查服务后手动恢复。"
+                run.save(update_fields=["status", "execution_token", "lease_expires_at", "message"])
+                from .incidents import report
+                report(f"task:{kind}", kind, run.message)
+                return "failed"
             run.status = "running"
             run.execution_token = uuid.uuid4()
             run.lease_expires_at = timezone.now() + timedelta(seconds=LEASE_SECONDS)
-            run.save(update_fields=["status", "execution_token", "lease_expires_at"])
+            run.attempts += 1
+            business_retries = max(business_retries, run.attempts - 1)
+            run.save(update_fields=["status", "execution_token", "lease_expires_at", "attempts"])
     kwargs = {"run_id": run.pk, "source": source, "generation": generation, "business_retries": business_retries}
     if wait:
         if not task.request.called_directly and (task.request.delivery_info or {}).get("redelivered"):
@@ -178,7 +198,10 @@ def execute_sync(task, kind, work, run_id=None, source=None, generation=None, bu
     lease = SyncLease(run, source, generation)
     with lease.maintain():
         try:
-            return work(lease, source, generation)
+            result = work(lease, source, generation)
+            from .incidents import resolve
+            resolve(f"task:{kind}")
+            return result
         except OwnershipLost:
             return "superseded" if SyncRun.objects.filter(pk=run.pk, status="superseded").exists() else "ownership-lost"
         except Exception as exc:
@@ -199,7 +222,7 @@ def execute_sync(task, kind, work, run_id=None, source=None, generation=None, bu
                     raise
             from .tasks import notify_failure
             try:
-                notify_failure.delay(kind)
+                notify_failure(kind)
             except Exception:
                 pass
             raise

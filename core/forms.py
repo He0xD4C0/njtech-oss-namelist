@@ -220,6 +220,7 @@ CONFIG_FIELDS = {
     "s3_secret_key": ("访问密钥", "Secret access key"),
     "s3_prefix": ("头像目录前缀", "Avatar object prefix"),
     "license_source_url": ("许可证策略仓库", "License policy repository"),
+    "license_write_token": ("策略仓库写入令牌", "Policy repository write token"),
     "policy_source_url": ("政策正文仓库", "Policy documents repository"),
     **{f"oauth_{p}_{key}": (f"{PLATFORM_NAMES[p]} 应用{label}", f"{PLATFORM_NAMES[p]} {key.replace('_', ' ')}")
        for p in ("github", "gitee", "gitlab")
@@ -230,7 +231,7 @@ CONFIG_GROUPS = {
     "smtp": ("邮件服务 / Mail delivery", tuple(key for key in CONFIG_FIELDS if key.startswith("smtp_"))),
     "turnstile": ("安全验证 / Security verification", ("turnstile_site_key", "turnstile_secret_key")),
     "documents": ("政策正文 / Policy documents", ("policy_source_url", "operator_name", "operator_contact_email")),
-    "licenses": ("许可证策略 / License policy", ("license_source_url",)),
+    "licenses": ("许可证策略 / License policy", ("license_source_url", "license_write_token")),
     **{platform: (f"{PLATFORM_NAMES[platform]} 账号绑定 / {PLATFORM_NAMES[platform]} account linking",
                   (f"oauth_{platform}_client_id", f"oauth_{platform}_client_secret"))
        for platform in ("github", "gitee", "gitlab")},
@@ -287,6 +288,7 @@ class ConfigurationForm(forms.Form):
                 widget=forms.RadioSelect(attrs={"class": "form-check-input"}), initial=get_setting("smtp_security") or "starttls",
             )
         help_texts = {
+            "license_write_token": ("仅允许选择上方这一个策略仓库的 GitHub 细粒度令牌（github_pat_），Contents 权限设为 Read and write。加密保存，仅后台服务读取；管理员审批会直接提交默认分支。", "Fine-grained token scoped only to the policy repository, with Contents read/write. Stored encrypted; approvals commit to its default branch."),
             "smtp_host": ("填写邮箱服务商提供的 SMTP 地址，不需要 https://。", "Enter the SMTP hostname from your email provider, without https://."),
             "smtp_port": ("直接加密常用 465，STARTTLS 常用 587；服务商给出的 994 等端口也可使用。切换加密方式不会改动端口。", "Common ports: 465 for SSL/TLS, 587 for STARTTLS. Provider-specific ports such as 994 are supported and never overwritten."),
             "smtp_security": ("两种方式都加密传输，请与邮箱服务商的要求保持一致。", "Both options encrypt the connection. Match your provider’s instructions."),
@@ -344,6 +346,8 @@ class ConfigurationForm(forms.Form):
         from .git import validate_git_url
 
         data = super().clean()
+        if data.get("license_write_token") and not data["license_write_token"].startswith("github_pat_"):
+            self.add_error("license_write_token", "请使用仅授权当前策略仓库的 GitHub 细粒度令牌（github_pat_），不要使用经典令牌或 OAuth 令牌。")
         for key in ("policy_source_url", "license_source_url"):
             if data.get(key):
                 try:

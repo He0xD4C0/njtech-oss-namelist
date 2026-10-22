@@ -87,7 +87,7 @@ def test_staff_has_business_access_without_private_configuration(client, claim):
     assert response.status_code == 200
     assert "失败任务" not in [item["title"] for item in response.context["overview_cards"]]
     assert b"/manage/settings/" not in response.content
-    assert client.get("/manage/settings/").status_code == 302
+    assert client.get("/manage/settings/", follow=True).status_code == 403
     assert client.get("/admin/core/syncrun/").status_code == 403
     for model in (Submission, Repository, AuditResult):
         model_admin = admin.site._registry[model]

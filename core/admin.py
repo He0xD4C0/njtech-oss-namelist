@@ -12,6 +12,8 @@ from unfold.admin import ModelAdmin
 from .i18n import management_message
 from .models import (
     AuditEvent,
+    Incident,
+    NotificationDelivery,
     PendingAvatarDeletion,
     PolicyConsent,
     PolicyDocument,
@@ -65,7 +67,7 @@ class UserAdmin(BaseUserAdmin, ModelAdmin):
     fieldsets = (
         (None, {"fields": ("username", "password")}),
         ("个人资料", {"fields": ("email", "full_name", "public_email", "language", "quota")}),
-        ("账号权限", {"fields": ("is_active", "is_staff"), "description": "管理员可管理公告与查看机审证据；站点配置仅限超级管理员。"}),
+        ("账号权限", {"fields": ("is_active", "is_staff"), "description": "管理员可管理公告、查看机审证据及审批许可证；站点配置与写入令牌仅限超级管理员。"}),
         ("账号时间", {"fields": ("last_login", "date_joined")}),
     )
     readonly_fields = ("username", "email", "last_login", "date_joined")
@@ -207,8 +209,18 @@ class SyncRunAdmin(PrivateReadOnlyAdmin):
     list_display = ("task_kind", "task_status", "task_message", "created_at")
     list_filter = (TaskStatusFilter,)
     search_fields = ("message", "source_sha")
-    fields = ("task_kind", "task_status", "task_message", "source_sha", "created_at", "lease_expires_at")
-    readonly_fields = ("task_kind", "task_status", "task_message")
+    fields = ("task_kind", "task_status", "task_message", "run_detail", "source_sha", "created_at", "lease_expires_at")
+    readonly_fields = ("task_kind", "task_status", "task_message", "run_detail")
+
+    @admin.display(description="运行摘要与失败对象")
+    def run_detail(self, obj):
+        if obj.kind == "restore":
+            phases = {"readiness": "备份配置检查", "bootstrap": "启动恢复脚本", "inventory": "读取备份清单", "capacity": "空间与容量检查",
+                      "restore": "恢复备份", "control": "读取数据库控制信息", "startup": "启动隔离数据库", "database": "验证数据库与解密",
+                      "shutdown": "停止隔离数据库", "checksums": "校验数据文件", "cleanup": "清理隔离目录", "complete": "完成"}
+            keys = {"phase": "执行阶段", "elapsed_seconds": "耗时（秒）", "exit_code": "退出码", "timed_out": "是否超时", "backup_set": "备份集", "summary": "脱敏摘要", "cleanup_failed": "清理是否失败"}
+            return formatted_json({keys.get(key, key): phases.get(value, value) if key == "phase" else value for key, value in obj.detail.items()})
+        return formatted_json(obj.detail)
 
     @admin.display(description="结果说明")
     def task_message(self, obj):
@@ -249,3 +261,30 @@ for model, model_admin in list(admin.site._registry.items()):
     if model._meta.app_label in {"sites", "django_celery_beat"}:
         admin.site.unregister(model)
         admin.site.register(model, type(f"Themed{type(model_admin).__name__}", (type(model_admin), ModelAdmin), {}))
+
+
+@admin.register(Incident)
+class IncidentAdmin(PrivateReadOnlyAdmin):
+    list_display = ("key", "summary", "opened_at", "last_seen_at", "resolved_at")
+    fields = ("key", "kind", "summary", "affected_view", "opened_at", "last_seen_at", "resolved_at")
+    readonly_fields = ("affected_view",)
+    list_filter = ("resolved_at",)
+
+    @admin.display(description="受影响仓库")
+    def affected_view(self, obj):
+        return formatted_json(obj.affected)
+
+
+@admin.register(NotificationDelivery)
+class NotificationDeliveryAdmin(PrivateReadOnlyAdmin):
+    list_display = ("key", "delivery_status", "attempts", "reason", "retry_at", "sent_at")
+    fields = ("key", "delivery_kind", "incidents", "delivery_status", "attempts", "reason", "retry_at", "created_at", "sent_at")
+    readonly_fields = ("delivery_status", "delivery_kind")
+
+    @admin.display(description="投递状态")
+    def delivery_status(self, obj):
+        return {"pending": "等待投递", "sending": "正在发送", "sent": "已发送", "failed": "发送失败", "skipped": "无需发送"}.get(obj.status, obj.status)
+
+    @admin.display(description="通知类型")
+    def delivery_kind(self, obj):
+        return {"first": "首次故障", "digest": "每日汇总", "recovery": "故障恢复"}.get(obj.kind, obj.kind)

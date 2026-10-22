@@ -9,11 +9,55 @@ import shutil
 import signal
 import subprocess
 import tempfile
+import time
+from contextvars import ContextVar
 from datetime import datetime
 from pathlib import Path
 
 PG_BIN = Path("/usr/lib/postgresql/17/bin")
 SCRATCH_ROOT = Path("/var/lib/restore")
+DIAGNOSTIC = ContextVar("restore_diagnostic", default=None)
+PHASES = {"bootstrap", "inventory", "capacity", "restore", "control", "startup", "database", "shutdown", "checksums", "cleanup", "complete"}
+
+
+class RestoreDiagnostic:
+    def __init__(self, root):
+        self.root, self.started = root, time.monotonic()
+        self.data = {"phase": "bootstrap", "backup_set": "", "exit_code": None, "timed_out": False}
+        self.failure = None
+
+    def phase(self, name):
+        self.data["phase"] = name
+
+    def failed(self, error):
+        if not self.failure:
+            self.failure = {**self.data, "timed_out": isinstance(error, (subprocess.TimeoutExpired, InterruptedError)),
+                            "exit_code": getattr(error, "returncode", None), "error": type(error).__name__}
+
+    def private_output(self, output):
+        text = str(output or "")[-65536:]
+        for key, value in os.environ.items():
+            if any(word in key for word in ("PASSWORD", "SECRET", "TOKEN", "ENCRYPTION", "CIPHER")):
+                if key.endswith("_FILE") and value:
+                    try:
+                        value = Path(value).read_text().strip()
+                    except OSError:
+                        value = ""
+                if len(value) > 3:
+                    text = text.replace(value, "[已隐藏]")
+        text = re.sub(r"(?i)(authorization[:=]\s*\S*\s+|(?:password|secret|token|access[-_]key)\s*[:=]\s*)[^\s,;]+", r"\1[已隐藏]", text)
+        text = re.sub(r"https?://[^\s/@]+:[^\s/@]+@", "https://[已隐藏]@", text)
+        self.write("last-restore-detail.log", text)
+
+    def write(self, name, text):
+        descriptor = os.open(self.root / name, os.O_WRONLY | os.O_CREAT | os.O_TRUNC | os.O_NOFOLLOW, 0o600)
+        os.fchmod(descriptor, 0o600)
+        with os.fdopen(descriptor, "w") as stream:
+            stream.write(text)
+
+    def summary(self):
+        return {**(self.failure or self.data), "elapsed_seconds": round(time.monotonic() - self.started, 2),
+                "status": "failed" if self.failure else "success"}
 
 
 class RestoreCommandError(RuntimeError):
@@ -26,6 +70,9 @@ def command(arguments, timeout=3600):
             [str(value) for value in arguments], check=True, capture_output=True, text=True, timeout=timeout
         )
     except subprocess.CalledProcessError as error:
+        if report := DIAGNOSTIC.get():
+            report.failed(error)
+            report.private_output(error.stderr)
         operation = next(
             (str(value) for value in arguments if value in {"info", "restore", "start", "stop", "--check"}),
             "inspect",
@@ -33,6 +80,11 @@ def command(arguments, timeout=3600):
         raise RestoreCommandError(
             f"{Path(str(arguments[0])).name}/{operation} exit {error.returncode}"
         ) from None
+    except subprocess.TimeoutExpired as error:
+        if report := DIAGNOSTIC.get():
+            report.failed(error)
+            report.private_output(error.stderr)
+        raise
 
 
 def validate_root(root):
@@ -101,8 +153,25 @@ def restore(args):
     root = Path(os.getenv("RESTORE_SCRATCH_ROOT", str(SCRATCH_ROOT)))
     validate_root(root)
     root.mkdir(parents=True, exist_ok=True)
+    report = RestoreDiagnostic(root)
+    token = DIAGNOSTIC.set(report)
+    try:
+        result = _restore(args, root, report)
+        report.phase("complete")
+        return {**result, "diagnostic": report.summary()}
+    except Exception as error:
+        report.failed(error)
+        error.restore_summary = report.summary()
+        raise
+    finally:
+        report.write("last-restore-result.json", json.dumps(report.summary()))
+        DIAGNOSTIC.reset(token)
+
+
+def _restore(args, root, report):
     with (root / ".restore.lock").open("w") as lock:
         fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        report.phase("inventory")
         inventory = json.loads(
             command(
                 ["pgbackrest", f"--stanza={os.getenv('BACKUP_STANZA', 'namelist')}", "--output=json", "info"],
@@ -114,6 +183,8 @@ def restore(args):
         if not backups:
             raise RuntimeError("No completed backup is available")
         selected = max(backups, key=lambda item: item["timestamp"]["stop"])
+        report.data["backup_set"] = selected["label"]
+        report.phase("capacity")
         size = selected["info"]["size"]
         maximum = int(os.getenv("RESTORE_MAX_BYTES", str(200 * 1024**3)))
         reserve = int(os.getenv("RESTORE_RESERVE_BYTES", str(50 * 1024**3)))
@@ -145,10 +216,12 @@ def restore(args):
                 restore_command += ["--type=time", f"--target={args.target_time}"]
             else:
                 restore_command.append("--type=immediate")
+            report.phase("restore")
             command(
                 restore_command + ["restore"],
                 timeout=int(os.getenv("RESTORE_TIMEOUT_SECONDS", "14400")) - 900,
             )
+            report.phase("control")
             command([PG_BIN / "pg_controldata", data])
             hba = scratch / "pg_hba.conf"
             hba.write_text("local all all trust\n")
@@ -161,6 +234,7 @@ def restore(args):
                 "-c port=55432 -c archive_mode=off -c primary_conninfo= -c logging_collector=off"
             )
             try:
+                report.phase("startup")
                 command(
                     [
                         PG_BIN / "pg_ctl",
@@ -186,13 +260,17 @@ def restore(args):
                         os.O_WRONLY | os.O_CREAT | os.O_TRUNC | os.O_NOFOLLOW,
                         0o600,
                     )
+                    os.fchmod(descriptor, 0o600)
                     with os.fdopen(descriptor, "w") as stream:
                         stream.write(log.read_text()[-65536:])
                 raise
             started = True
+            report.phase("database")
             result = validate_database(socket_directory)
+            report.phase("shutdown")
             command([PG_BIN / "pg_ctl", "-D", data, "-m", "fast", "-w", "-t", "60", "stop"], timeout=90)
             started = False
+            report.phase("checksums")
             command([PG_BIN / "pg_checksums", "--check", "--pgdata", data], timeout=1800)
             success = True
             return {
@@ -201,7 +279,11 @@ def restore(args):
                 "kept": args.keep,
                 "data_directory": str(data) if args.keep else None,
             }
+        except Exception as error:
+            report.failed(error)
+            raise
         finally:
+            report.phase("cleanup")
             if started or (data / "postmaster.pid").exists():
                 try:
                     command(
@@ -209,6 +291,8 @@ def restore(args):
                         timeout=45,
                     )
                 except (RestoreCommandError, subprocess.SubprocessError, OSError):
+                    if report.failure:
+                        report.failure["cleanup_failed"] = True
                     # Never remove a directory while its database may still be running.
                     raise RuntimeError(
                         "Scratch PostgreSQL could not stop; retain isolated volume for inspection"
@@ -233,6 +317,7 @@ def main():
     try:
         print(json.dumps(restore(args)))
     except Exception as error:
+        print(json.dumps({"diagnostic": getattr(error, "restore_summary", {"phase": "bootstrap", "status": "failed"})}))
         # pgBackRest SQL/log output can contain private configuration. Keep it out of task result storage.
         detail = str(error) if isinstance(error, RestoreCommandError) else type(error).__name__
         raise SystemExit(f"Restore verification failed ({detail}); inspect isolated maintenance logs")

@@ -33,6 +33,63 @@ given and no creator accepts liability for any damage arising from this work.
 """
 
 
+def test_approval_real_preflight_sync_and_ownership_gated_reaudit(tmp_path, settings, monkeypatch):
+    import httpx
+    from test_license_approval import FakeGitHub
+
+    from core.models import SourceSyncState
+    from core.runtime import set_setting
+    from core.tasks import sync_license_policy
+    from repositories.approvals import process_approval, request_approval
+    from repositories.models import LicenseApproval, Repository, Submission
+    from repositories.originals import save_originals
+    from repositories.policy_github import PolicyGitHub
+
+    settings.WORK_ROOT = tmp_path
+    remote = FakeGitHub()
+    remote.files = {"whitelist/mit.txt": spdx.templates()["MIT"]["text"], "sources.json": '{"files":[]}'}
+    remote.head = remote.make_head(remote.files)
+    target = "https://github.com/owner/policy.git"
+    set_setting("license_source_url", target)
+    set_setting("license_write_token", "github_pat_local_protocol_fixture")
+    client = PolicyGitHub(target, lambda: None, transport=httpx.MockTransport(remote))
+    monkeypatch.setattr("repositories.approvals.PolicyGitHub", lambda destination, guard: PolicyGitHub(destination, guard, transport=httpx.MockTransport(remote)))
+    monkeypatch.setattr("core.tasks.sync_license_policy.delay", lambda **kwargs: None)
+    monkeypatch.setattr("repositories.tasks.audit_submission.delay", lambda *args: None)
+    old_index = tmp_path / "old-policy"
+    manifest = compile_policy({"whitelist/mit.txt": remote.files["whitelist/mit.txt"]}, old_index)
+    policy = LicensePolicy.objects.create(source_sha=remote.head, active=True, detector_version=manifest["detector_version"], manifest=manifest, index_path=str(old_index))
+    owner = User.objects.create_user("owner", is_staff=True)
+    OAuthBinding.objects.create(user=owner, platform="github", platform_user_id="123", username="owner", encrypted_access_token=encrypt("local-identity-fixture"))
+    data = RepoData(platform="github", platform_id="456", name="demo", full_name="owner/demo", description="Local fixture",
+        html_url="https://github.com/owner/demo", clone_url="https://github.com/owner/demo.git", owner_id="123", default_branch="main",
+        fork=False, archived=False, stars=10, public=True, owner_type="user", head_sha="a" * 40, commit_at=timezone.now())
+    repository = Repository.objects.create(**data.as_metadata())
+    submission = Submission.objects.create(user=owner, repository=repository, status="needs_review")
+    audit = AuditResult.objects.create(submission=submission, generation=1, source_sha="a" * 40, policy_sha=policy.source_sha,
+        detector_version=policy.detector_version, decision="needs_review")
+    snapshot = GitSnapshot(audit.source_sha, timezone.now(), {"LICENSE": TEXT})
+    save_originals(audit, snapshot, data.clone_url)
+    job = request_approval(audit.originals.get().pk, owner)
+    assert process_approval(job.pk) == "waiting"
+    job.refresh_from_db()
+    assert remote.advances == 1 and job.commit_sha and job.stage == "sync"
+    policy_snapshot = GitSnapshot(remote.head, timezone.now(), client.read().files)
+    with patch("core.git.fetch_snapshot", return_value=policy_snapshot):
+        sync_license_policy(run_id=job.sync_run_id, source=target, generation=SourceSyncState.objects.get(kind="licenses").generation)
+    submission.refresh_from_db()
+    assert submission.status == "needs_review" and submission.generation == 2
+    # Admission still follows the normal public/ownership checks and real scanner.
+    with patch("providers.api.validate_repository", return_value=data) as ownership, patch("core.git.fetch_snapshot", return_value=snapshot):
+        assert audit_submission(submission.pk, submission.generation) == "published"
+        assert ownership.call_count == 2
+    LicenseApproval.objects.filter(pk=job.pk).update(retry_at=None)
+    process_approval(job.pk)
+    job.refresh_from_db()
+    assert job.stage == "done" and not job.active and job.policy_sha == remote.head
+    assert next(iter(job.reaudit.values()))["status"] == "公开"
+
+
 @pytest.mark.parametrize(
     "platform,host", [("github", "github.com"), ("gitee", "gitee.com"), ("gitlab", "gitlab.com")]
 )

@@ -1,0 +1,19 @@
+{% extends "admin/base_site.html" %}
+{% load static %}
+{% block extrahead %}{{ block.super }}<script src="{% static 'js/license-review.js' %}" defer></script>{% endblock %}
+{% block content %}
+<div class="license-review" data-approval-url="{% url 'admin:license_approval_status' job.pk %}">
+  <p>{% if job.original_id %}<a href="{% url 'admin:license_originals' job.original.audit_id %}">返回许可证原文</a>{% else %}原申请已删除{% endif %} · 审批任务 #{{ job.pk }}</p>
+  <ol class="review-stages">{% for stage in stages %}<li data-stage="{{ stage }}" {% if stage == data.stage %}aria-current="step"{% endif %}>{{ stage }}</li>{% endfor %}</ol>
+  <section class="review-card" aria-live="polite">
+    <h2 data-job-status>{{ data.stage }} · {{ data.status }}</h2>
+    <p data-job-reason>{{ data.reason|default:"任务已保存，等待后台服务执行。可以离开本页，稍后返回查看。" }}</p>
+    <dl class="review-metadata"><dt>策略仓库</dt><dd>{{ job.target }}</dd><dt>许可证哈希</dt><dd>{{ job.digest }}</dd><dt>已确认仓库提交</dt><dd data-job-commit>{{ data.commit|default:"尚未提交" }}</dd><dt>已生效策略</dt><dd data-job-policy>{{ data.policy|default:"尚未生效" }}</dd></dl>
+    <form method="post" action="{% url 'admin:license_approval_retry' job.pk %}" data-job-retry {% if not data.failed %}hidden{% endif %}>{% csrf_token %}<button class="review-button" type="submit">从失败阶段重试</button></form>
+  </section>
+  <section class="review-card"><h2>仓库复审结果</h2><p>策略生效与仓库收录分别核验。授权受阻的仓库不会直接变为已收录。</p>
+    <ul data-job-reaudits>{% for result in data.reaudit %}<li>{{ result.repository }}：{{ result.status|default:"等待复审" }}{% if result.reason %} · {{ result.reason }}{% endif %}</li>{% empty %}<li>策略生效后将在这里显示各仓库复审结果。</li>{% endfor %}</ul>
+  </section>
+  <p data-poll-message role="status"></p>
+</div>
+{% endblock %}

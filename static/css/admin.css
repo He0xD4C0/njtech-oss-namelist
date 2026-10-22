@@ -38,3 +38,22 @@
 .admin-config-navigation a:focus-visible, .admin-overview-card:focus-visible, .admin-config-group > summary:focus-visible { outline: 3px solid var(--color-primary-500); outline-offset: 3px; }
 html[lang^="zh"] .editor-statusbar .lines::before { content: '行数：'; }
 html[lang^="zh"] .editor-statusbar .words::before { content: '词数：'; }
+
+.license-review { display: flex; flex-direction: column; gap: 1.25rem; min-width: 0; max-width: 100%; }
+.review-card { border: 1px solid var(--color-base-200); border-radius: .5rem; padding: 1.25rem; min-width: 0; }
+.dark .review-card { border-color: var(--color-base-700); }
+.review-card h2 { font-size: 1.1rem; font-weight: 600; margin-bottom: .75rem; overflow-wrap: anywhere; }
+.review-metadata { display: grid; grid-template-columns: minmax(7rem, auto) minmax(0, 1fr); gap: .5rem 1rem; margin: 1rem 0; }
+.review-metadata dd, .license-review p, [data-job-reaudits] li { overflow-wrap: anywhere; }
+.review-metadata dt { font-weight: 600; }
+.license-text { white-space: pre-wrap; overflow-wrap: anywhere; overflow: auto; max-height: 65vh; padding: 1rem; margin: .75rem 0; background: var(--color-base-50); color: var(--color-base-900); font-size: .875rem; line-height: 1.65; border: 1px solid var(--color-base-200); }
+.dark .license-text { background: var(--color-base-900); color: var(--color-base-100); border-color: var(--color-base-700); }
+.review-actions { display: flex; flex-direction: column; align-items: flex-start; gap: .75rem; margin-top: 1rem; }
+.review-button { display: inline-block; border-radius: .375rem; padding: .75rem 1rem; background: var(--color-primary-600); color: white; font-weight: 600; cursor: pointer; }
+.review-button.secondary { background: transparent; color: inherit; border: 1px solid var(--color-base-300); }
+.review-button:focus-visible, .license-text:focus-visible { outline: 3px solid var(--color-primary-500); outline-offset: 3px; }
+.review-stages { display: flex; flex-wrap: wrap; gap: .5rem; list-style: decimal inside; }
+.review-stages li { padding: .5rem .75rem; border: 1px solid var(--color-base-200); border-radius: .375rem; }
+.review-stages [aria-current] { border-color: var(--color-primary-500); font-weight: 700; }
+[data-job-reaudits] { display: flex; flex-direction: column; gap: .75rem; margin-top: 1rem; }
+@media (max-width: 600px) { .review-card { padding: .875rem; } .review-metadata { grid-template-columns: minmax(0, 1fr); gap: .25rem; } .review-metadata dd { margin-bottom: .75rem; } }

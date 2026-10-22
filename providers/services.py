@@ -46,6 +46,8 @@ def save_binding(sociallogin, user):
             binding, _ = OAuthBinding.objects.update_or_create(user=user, platform=platform, defaults=defaults)
     except IntegrityError:
         raise BindingConflict("External identity already bound") from None
+    from repositories.tasks import resume_authorized
+    transaction.on_commit(lambda: resume_authorized(user.pk, platform))
     return binding
 
 

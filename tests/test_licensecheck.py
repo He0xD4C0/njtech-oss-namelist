@@ -437,3 +437,35 @@ print(json.dumps({'labels': labels, 'cache': [stat.st_ino, stat.st_size, stat.st
     assert outputs[0]["cache"] == outputs[1]["cache"]
     assert marker.read_text() == "persistent cache"
 
+
+@pytest.mark.parametrize("candidate", ["gpl", "existing", "custom"])
+def test_administrator_preflight_uses_real_scanner_and_complete_text(tmp_path, candidate):
+    from licensecheck.review import preflight
+
+    files = {"whitelist/mit.txt": MIT, "blacklist/restricted.txt": RESTRICTED}
+    text = {"gpl": spdx.templates()["GPL-3.0-only"]["text"], "existing": MIT, "custom": CUSTOM}[candidate]
+    assert preflight(files, "whitelist/reviewed-test.txt", text, tmp_path) == ("allowed" if candidate == "existing" else "add")
+    if candidate != "existing":
+        manifest = json.loads((tmp_path / "after/manifest.json").read_text())
+        result = scan_candidates({"LICENSE": text, "LICENSES/second.txt": RESTRICTED}, manifest, tmp_path / "after")
+        assert result["decision"] != "published"
+
+
+@pytest.mark.parametrize("candidate", [RESTRICTED, CUSTOM + "\n" + RESTRICTED])
+def test_administrator_cannot_allow_blacklist_full_text_or_complete_fragment(tmp_path, candidate):
+    from licensecheck.review import preflight
+
+    with pytest.raises(PolicyCompilationError):
+        preflight({"whitelist/mit.txt": MIT, "blacklist/restricted.txt": RESTRICTED},
+                  "whitelist/reviewed-test.txt", candidate, tmp_path)
+    assert not (tmp_path / "after").exists()
+
+
+def test_blacklisted_template_cannot_hide_in_single_line_bundle(tmp_path):
+    from licensecheck.review import preflight
+
+    variant = MIT.replace("2020 Alice Example", "2026 Zed-Novel-Author").replace("\n", " ")
+    with pytest.raises(PolicyCompilationError):
+        preflight({"whitelist/custom.txt": CUSTOM, "blacklist/mit.txt": MIT},
+                  "whitelist/reviewed-test.txt", CUSTOM + "\n" + variant + " Additional text.", tmp_path)
+

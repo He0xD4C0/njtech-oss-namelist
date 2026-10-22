@@ -101,11 +101,14 @@ def remove_submission(submission, actor):
 
 
 @transaction.atomic
-def mark_ineligible(submission_id, generation, reason):
+def mark_ineligible(submission_id, generation, reason, *, lease=None):
     freeze_completed_months()
     submission = Submission.objects.select_for_update().filter(pk=submission_id).first()
     if not submission or submission.generation != generation or submission.status == "removed":
         return False
+    if lease:
+        with lease.publish():
+            pass
     submission.status = "historical" if submission.published_at else "rejected"
     submission.reason = reason
     submission.generation += 1
@@ -114,7 +117,7 @@ def mark_ineligible(submission_id, generation, reason):
 
 
 @transaction.atomic
-def apply_audit_result(submission_id, generation, source_sha, policy, result, metadata, committed_at):
+def apply_audit_result(submission_id, generation, source_sha, policy, result, metadata, committed_at, *, snapshot=None, lease=None):
     freeze_completed_months()
     # Source sync activation and audit publication share this lock. Stale policy work cannot win.
     from core.models import SourceSyncState
@@ -139,6 +142,9 @@ def apply_audit_result(submission_id, generation, source_sha, policy, result, me
         ).exists()
     ):
         return "superseded"
+    if lease:
+        with lease.publish():
+            pass
     repository = Repository.objects.select_for_update().get(pk=submission.repository_id)
     if repository.head_sha and repository.head_sha != source_sha:
         return "superseded-head"
@@ -152,7 +158,7 @@ def apply_audit_result(submission_id, generation, source_sha, policy, result, me
     repository.commit_at = committed_at
     repository.synced_at = timezone.now()
     repository.save()
-    AuditResult.objects.create(
+    audit = AuditResult.objects.create(
         submission=submission,
         generation=generation,
         source_sha=source_sha,
@@ -161,6 +167,9 @@ def apply_audit_result(submission_id, generation, source_sha, policy, result, me
         decision=result["decision"],
         evidence=result["evidence"],
     )
+    if snapshot is not None:
+        from .originals import save_originals
+        save_originals(audit, snapshot, repository.clone_url)
     if result["decision"] == "published":
         now = timezone.now()
         if submission.status != "published":
@@ -180,4 +189,7 @@ def apply_audit_result(submission_id, generation, source_sha, policy, result, me
     submission.audited_head, submission.audited_policy = source_sha, policy.source_sha
     submission.audited_detector = policy.detector_version
     submission.save()
+    if lease:
+        with lease.publish():
+            pass
     return submission.status

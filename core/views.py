@@ -9,7 +9,7 @@ from allauth.account.models import EmailAddress
 from django.conf import settings
 from django.contrib import messages
 from django.contrib.auth import logout
-from django.contrib.auth.decorators import login_required, user_passes_test
+from django.contrib.auth.decorators import login_required
 from django.db import transaction
 from django.http import Http404, HttpResponse, HttpResponseBadRequest, HttpResponseForbidden, JsonResponse
 from django.shortcuts import redirect, render
@@ -348,9 +348,10 @@ def setup(request):
 
 
 @login_required
-@user_passes_test(lambda user: user.is_superuser)
 @sensitive_post_parameters()
 def configuration(request):
+    if not request.user.is_superuser:
+        return HttpResponseForbidden("仅超级管理员可以访问站点配置。")
     from django.contrib import admin
 
     from .backup import public_status

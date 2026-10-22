@@ -313,7 +313,7 @@ def test_provider_verified_email_is_not_site_verification(user):
     assert SocialAdapter().can_authenticate_by_email(login, "provided@example.test") is False
 
 
-@pytest.mark.parametrize("platform", ["gitee", "gitlab"])
+@pytest.mark.parametrize("platform", ["github", "gitee", "gitlab"])
 def test_expired_token_refresh_is_encrypted_and_post_only(user, platform):
     configure(platform)
     binding = bind(user, platform, encrypted_refresh_token=encrypt("old-refresh-secret"), expires_at=timezone.now() - timedelta(minutes=1))
@@ -322,7 +322,7 @@ def test_expired_token_refresh_is_encrypted_and_post_only(user, platform):
         requests_seen.append(request)
         assert "secret" not in str(request.url)
         if request.method == "POST":
-            assert request.url.path == "/oauth/token"
+            assert request.url.path == ("/login/oauth/access_token" if platform == "github" else "/oauth/token")
             assert b"old-refresh-secret" in request.content
             return httpx.Response(200, json={"access_token": "refreshed-access", "refresh_token": "rotated-refresh", "expires_in": 7200})
         assert request.headers["authorization"] == "Bearer refreshed-access"

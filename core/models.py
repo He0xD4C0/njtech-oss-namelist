@@ -143,6 +143,8 @@ class SyncRun(models.Model):
     status = models.CharField(verbose_name="状态", max_length=16)
     source_sha = models.CharField(verbose_name="来源版本", max_length=64, blank=True)
     message = models.TextField(verbose_name="结果说明", blank=True)
+    detail = models.JSONField("运行摘要", default=dict, blank=True)
+    attempts = models.PositiveIntegerField("执行尝试次数", default=0)
     created_at = models.DateTimeField(verbose_name="创建时间", auto_now_add=True)
     execution_token = models.UUIDField(verbose_name="执行标识", null=True, blank=True, editable=False)
     lease_expires_at = models.DateTimeField(verbose_name="执行权到期时间", null=True, blank=True, editable=False)
@@ -158,6 +160,39 @@ class SyncRun(models.Model):
 class SourceSyncState(models.Model):
     kind = models.CharField(max_length=32, unique=True)
     generation = models.PositiveIntegerField(default=0)
+
+
+class Incident(models.Model):
+    key = models.CharField("故障标识", max_length=200)
+    kind = models.CharField("类型", max_length=40)
+    summary = models.TextField("脱敏原因")
+    affected = models.JSONField("受影响对象", default=list)
+    opened_at = models.DateTimeField("首次发生时间", auto_now_add=True)
+    last_seen_at = models.DateTimeField("最近发生时间", auto_now=True)
+    resolved_at = models.DateTimeField("恢复时间", null=True, blank=True)
+
+    class Meta:
+        verbose_name = "故障事件"
+        verbose_name_plural = verbose_name
+        constraints = [models.UniqueConstraint(fields=["key"], condition=models.Q(resolved_at=None), name="one_open_incident")]
+
+
+class NotificationDelivery(models.Model):
+    key = models.CharField("通知标识", max_length=200, unique=True)
+    kind = models.CharField("通知类型", max_length=16)
+    incidents = models.ManyToManyField(Incident, verbose_name="相关故障")
+    status = models.CharField("状态", max_length=16, default="pending")
+    attempts = models.PositiveIntegerField("尝试次数", default=0)
+    reason = models.CharField("投递说明", max_length=200, blank=True)
+    retry_at = models.DateTimeField("下次投递", null=True, blank=True)
+    execution_token = models.UUIDField(null=True, editable=False)
+    lease_expires_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField("创建时间", auto_now_add=True)
+    sent_at = models.DateTimeField("发送时间", null=True, blank=True)
+
+    class Meta:
+        verbose_name = "故障通知投递"
+        verbose_name_plural = verbose_name
 
 
 class PendingAvatarDeletion(models.Model):

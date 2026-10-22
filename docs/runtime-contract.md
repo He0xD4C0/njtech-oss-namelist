@@ -40,10 +40,12 @@ Gunicorn 访问日志只记录连接 IP、方法、状态和耗时，不记录 U
 ## 队列、周期与目录
 
 - `celery`：普通 API / Git 同步、邮件等任务。
-- `scan`：`repositories.tasks.audit_submission`、`core.tasks.sync_license_policy`；一般 Worker 不安装扫描库。
+- `scan`：`repositories.tasks.audit_submission`、`core.tasks.sync_license_policy`、许可证原文补取/核验和审批执行；一般 Worker 不安装扫描库。
 - `maintenance`：`core.tasks.restore_drill` 和 `core.tasks.report_backup_readiness`，并发固定 1；恢复脚本另有文件锁。维护服务启动时上报备份配置状态，Beat 每分钟刷新；Web 仅读取三分钟有效的缓存报告，不接触备份 Secrets。报告过期（包括维护队列繁忙）时显示未知，状态上报失败不阻止独立备份计时器运行。
 - 每套环境恰好一个数据库调度 Beat。`setup_periodic_tasks` 管理每日来源同步、每小时 Git、每六小时平台 API、每五分钟 `repositories.tasks.recover_audits`、每日 Star 快照/封榜与每日恢复到期检查。
-- 审核投递使用数据库 `AuditDispatch` 发件箱：策略激活与相应申请 generation 的发件箱记录在同一事务提交；提交后投递失败不丢失任务。每五分钟恢复未投递或三小时未完成的工作；迟确认、generation 校验及唯一审核结果使重复投递不会复活撤下条目。此机制不等同于依赖 Redis 持久化即可保证投递。
+- 审核投递使用数据库 `AuditDispatch` 发件箱：策略激活与相应申请 generation 的发件箱记录在同一事务提交；持久保存执行状态、次数、租约、退避和脱敏原因。每五分钟只补偿漏投递、退避到期及执行进程丢失；永久授权失败等待重新授权，临时故障最多七次尝试，终止失败不会被周期任务无限重启。重授权成功仅恢复该账号当前批次的受阻机审；迟确认和租约校验防止旧执行覆盖新批次。
+- 许可证审批使用 `LicenseApproval` 持久任务，每分钟补偿到期任务，按原文哈希与策略仓库复用活动审批。执行阶段为原文核验、策略预检、仓库提交、同步生效和复审；同步中断保留已确认提交和待生效需求，管理员可以从失败阶段重试。新机审保存不可变原文字节，历史补取只接受原提交和已有证据哈希。
+- 故障按持久 `Incident` 归并；账号故障列出受影响仓库，业务异常与全局钩子共用同一故障。通知首次一次、北京时间每日 09:00 合并未恢复故障、实际恢复后一次；没有未恢复故障不发汇总。`NotificationDelivery` 保存投递状态，每五分钟补偿，最多八次尝试；SMTP 接受投递不等于收件箱已收到。
 - 头像删除使用 `PendingAvatarDeletion`：用户删除事务捕获并持久化锁定后的最新对象键，上传与注销竞态产生的晚到对象也进入清理队列；只保存对象键，不保留被删除用户资料。普通队列执行删除，每小时 `core.tasks.recover_avatar_deletions` 重投尚未完成的条目，S3 或 broker 故障后仍能继续清理。
 - 扫描 Worker 软/硬时限为 6600/7200 秒；恢复 Worker 为 18030/18300 秒，为应用的 18000 秒子进程超时留出清理窗口。扫描超时后的遗留工作由上述发件箱恢复，不把临时失败判成开源失格。
 - 管理配置恢复频率为 off / weekly / monthly / quarterly；应用按最近成功演练的日历周期判定是否到期，monthly/quarterly分别为一/三个月，不把自然月固定为30天。

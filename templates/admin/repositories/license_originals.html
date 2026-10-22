@@ -1,0 +1,28 @@
+{% extends "admin/base_site.html" %}
+{% load static %}
+{% block extrahead %}{{ block.super }}<script src="{% static 'js/license-review.js' %}" defer></script>{% endblock %}
+{% block content %}
+<div class="license-review">
+  <p><a href="{% url 'admin:repositories_submission_change' audit.submission_id %}">返回收录申请</a> · {{ audit.submission.repository.full_name }} · 第 {{ audit.generation }} 批机审</p>
+  <p>逐份查看许可证完整原文。审批会增加全站允许规则；仓库仍须通过公开性、归属及其他许可证文件的检查。</p>
+  <form method="post" action="{% url 'admin:license_inspect' audit.pk %}" {% if auto_inspect %}data-auto-inspect{% endif %}>{% csrf_token %}<button class="review-button secondary" type="submit">补取原文并核验当前策略</button></form>
+  {% if check.state == 'running' %}<p role="status" data-inspection-url="{% url 'admin:license_inspection_status' audit.pk %}">正在按固定提交获取原文并核验当前策略，请稍候……</p>{% endif %}
+  {% if check.message %}<p role="status">{{ check.message }}</p>{% endif %}
+  {% if audit.original_error %}<p role="alert">{{ audit.original_error }}</p>{% endif %}
+  {% if removed %}<p role="alert">申请已移除，可以查看证据，不能审批或重新机审。</p>{% endif %}
+  {% for row in rows %}
+  <section class="review-card">
+    <h2>{{ row.original.path }}</h2>
+    <dl class="review-metadata"><dt>来源仓库</dt><dd>{{ row.original.source_url }}</dd><dt>固定来源提交</dt><dd>{{ row.original.source_sha }}</dd><dt>原文 SHA-256</dt><dd>{{ row.original.sha256 }}</dd><dt>当前匹配结论</dt><dd>{{ row.match }}</dd></dl>
+    {% if row.original.verified %}<details open><summary>完整许可证原文（只读）</summary><pre class="license-text" tabindex="0">{{ row.original.text }}</pre></details>{% else %}<p role="alert">{{ row.original.error }}</p>{% endif %}
+    <div class="review-actions">
+    {% if not removed and row.original.verified %}
+      {% if row.allowed %}<form method="post" action="{% url 'admin:license_recheck' row.original.pk %}">{% csrf_token %}<button class="review-button" type="submit">重新机审</button></form><p>当前策略已完整允许此正文，无需重复加入。</p>
+      {% else %}<form method="post" action="{% url 'admin:license_approve' row.original.pk %}">{% csrf_token %}<button class="review-button" type="submit">加入允许仓库并同步</button></form><p>此操作会增加全站允许规则，并直接提交策略仓库默认分支。黑名单冲突会阻止提交。</p>{% endif %}
+    {% endif %}
+    {% if row.job %}<a href="{% url 'admin:license_approval' row.job.pk %}">查看审批进度 #{{ row.job.pk }}</a>{% endif %}
+    </div>
+  </section>
+  {% empty %}<p>尚无已保存原文。可点击上方按钮，按机审固定提交补取；无法取得或哈希不符的正文不会用于审批。</p>{% endfor %}
+</div>
+{% endblock %}

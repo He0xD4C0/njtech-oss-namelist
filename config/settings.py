@@ -215,6 +215,9 @@ CELERY_BROKER_TRANSPORT_OPTIONS = {"visibility_timeout": 21600}
 CELERY_RESULT_EXPIRES = 86400
 CELERY_BEAT_SCHEDULER = "django_celery_beat.schedulers:DatabaseScheduler"
 CELERY_TASK_ROUTES = {
+    "repositories.approvals.process_approval": {"queue": "scan"},
+    "repositories.originals.inspect_originals": {"queue": "scan"},
+    "repositories.originals.retrieve_originals": {"queue": "scan"},
     "repositories.tasks.audit_submission": {"queue": "scan"},
     "core.tasks.sync_license_policy": {"queue": "scan"},
     "core.tasks.restore_drill": {"queue": "maintenance"},

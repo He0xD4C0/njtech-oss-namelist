@@ -20,7 +20,8 @@ def legacy():
     # A failed preflight deliberately leaves legacy records untouched. Remove
     # only this test's fixtures before restoring the current schema.
     apps.get_model('core', 'User').objects.all().delete()
-    MigrationExecutor(connection).migrate(NEW)
+    current = MigrationExecutor(connection)
+    current.migrate(current.loader.graph.leaf_nodes())
 
 
 def test_upgrade_preserves_ids_passwords_and_verified_defaults(legacy):

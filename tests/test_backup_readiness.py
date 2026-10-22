@@ -2,9 +2,10 @@ from unittest.mock import patch
 
 import pytest
 from django.core.cache import cache
+from django.utils import translation
 
 from core.forms import ConfigurationForm
-from core.models import SyncRun
+from core.models import Incident, NotificationDelivery, SyncRun
 from core.runtime import get_setting
 from core.tasks import restore_drill
 from core.views import save_configuration
@@ -18,7 +19,8 @@ def test_gui_frequency_cannot_bypass_unconfigured_backup(schedule, monkeypatch):
     monkeypatch.setenv("SITE_ENVIRONMENT", "staging")
     monkeypatch.setenv("BACKUP_S3_BUCKET", "")
     monkeypatch.setenv("BACKUP_CIPHER_FILE", "/missing/backup-cipher")
-    form = ConfigurationForm({"restore_schedule": schedule})
+    with translation.override("zh-hans"):
+        form = ConfigurationForm({"restore_schedule": schedule})
     assert form.is_valid(), form.errors
     save_configuration(form)
     assert get_setting("restore_schedule") == schedule
@@ -49,11 +51,11 @@ def test_configured_backup_failures_are_reported(reason):
     with (
         patch("deploy.backup.readiness.readiness", return_value="ready"),
         patch("core.tasks.subprocess.run", side_effect=OSError(reason)),
-        patch("core.tasks.notify_failure.delay") as notify,
     ):
         assert restore_drill() == "failed"
         assert SyncRun.objects.filter(kind="restore", status="failed").exists()
-        notify.assert_called_once_with("restore")
+        assert Incident.objects.filter(key="task:restore", resolved_at=None).count() == 1
+        assert NotificationDelivery.objects.filter(kind="first").count() == 1
     assert not cache.get("restore-drill-running")
 
 
@@ -61,9 +63,8 @@ def test_invalid_configuration_is_reported_without_starting_restore():
     with (
         patch("deploy.backup.readiness.readiness", side_effect=ValueError("private sentinel")),
         patch("core.tasks.subprocess.run") as run,
-        patch("core.tasks.notify_failure.delay") as notify,
     ):
         assert restore_drill() == "failed"
         run.assert_not_called()
-        notify.assert_called_once_with("restore")
+        assert Incident.objects.filter(key="task:restore", resolved_at=None).count() == 1
     assert "private sentinel" not in SyncRun.objects.get(kind="restore").message

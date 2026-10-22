@@ -1,29 +1,31 @@
 import hashlib
+import json
 import os
+import re
 import shutil
 import subprocess
 import tempfile
+import time
 from pathlib import Path
 
 from celery import shared_task
 from django.conf import settings
 from django.utils import timezone
 
-from .i18n import text
-from .mail import send_system_mail
 from .models import PolicyDocument, SyncRun
 from .runtime import get_setting
 from .sync import execute_sync
 
 
-def record_failure(kind):
+def record_failure(kind, detail=None):
     # Deliberately avoid exception strings: upstream URLs and credentials may appear in them.
     SyncRun.objects.create(
         kind=kind,
         status="failed",
         message="同步失败，保留最近有效内容 / Sync failed; last valid content retained",
+        detail=detail or {},
     )
-    notify_failure.delay(kind)
+    notify_failure(kind)
 
 
 @shared_task(bind=True, max_retries=None)
@@ -163,20 +165,8 @@ def recover_avatar_deletions():
 
 @shared_task
 def notify_failure(kind):
-    recipients = [value.strip() for value in get_setting("operations_emails").split(",") if value.strip()]
-    if not recipients:
-        return "no-recipients"
-    try:
-        send_system_mail(
-            text("NJTech OSS · 任务失败通知", "NJTech OSS · Task failure"),
-            text(f"任务 {kind} 执行失败，请到管理后台查看记录并处理。", f"Task {kind} failed. Review the records in the administration panel."),
-            recipients, action_url=settings.SITE_BASE_URL.rstrip("/") + "/manage/settings/",
-            action_label=text("查看运行状态", "View status"),
-        )
-    except Exception:
-        SyncRun.objects.create(kind="alert", status="failed", message="告警邮件发送失败 / Alert email failed")
-        return "mail-failed"
-    return "sent"
+    from .incidents import report
+    return report(f"task:{kind}", kind[:40], "任务执行失败，请查看后台脱敏运行记录。").pk
 
 
 @shared_task
@@ -225,7 +215,7 @@ def restore_drill():
     try:
         state = readiness()
     except (ValueError, OSError):
-        record_failure("restore")
+        record_failure("restore", {"phase": "readiness", "summary": "独立备份配置检查失败"})
         return "failed"
     if state != "ready":
         return state
@@ -245,22 +235,52 @@ def restore_drill():
 
     if not cache.add("restore-drill-running", "1", timeout=21600):
         return "already-running"
+    started = time.monotonic()
     try:
-        subprocess.run(
+        completed = subprocess.run(
             ["/app/deploy/backup/restore-drill.sh"], check=True, timeout=18000, capture_output=True
         )
         SyncRun.objects.create(
             kind="restore",
             status="success",
             message="隔离恢复与配置解密验证通过 / Isolated restore and key verification passed",
+            detail=restore_diagnostic(completed.stdout, elapsed=time.monotonic() - started),
         )
+        from .incidents import resolve
+        resolve("task:restore")
         return "success"
-    except Exception:
-        record_failure("restore")
+    except Exception as error:
+        record_failure("restore", restore_diagnostic(getattr(error, "stdout", b""), error=error, elapsed=time.monotonic() - started))
         return "failed"
     finally:
         cache.delete("restore-drill-running")
 
 
+def restore_diagnostic(output, *, error=None, elapsed=0):
+    """Only a bounded allowlist crosses the maintenance service boundary."""
+    from deploy.backup.restore import PHASES
+
+    result = {"phase": "bootstrap", "elapsed_seconds": round(elapsed, 2),
+              "exit_code": getattr(error, "returncode", None),
+              "timed_out": isinstance(error, subprocess.TimeoutExpired) or getattr(error, "returncode", None) in {124, 137},
+              "summary": "恢复验证失败；详细诊断仅保留在维护服务受限目录。" if error else "隔离恢复验证通过。"}
+    try:
+        data = json.loads(output[-4096:])["diagnostic"]
+        if data.get("phase") in PHASES:
+            result["phase"] = data["phase"]
+        if isinstance(data.get("exit_code"), int):
+            result["exit_code"] = data["exit_code"]
+        result["timed_out"] = result["timed_out"] or data.get("timed_out") is True
+        if data.get("cleanup_failed") is True:
+            result["cleanup_failed"] = True
+        label = data.get("backup_set", "")
+        if isinstance(label, str) and re.fullmatch(r"\d{8}-\d{6}F(?:_\d{8}-\d{6}[DI])?", label):
+            result["backup_set"] = label
+    except (ValueError, TypeError, KeyError):
+        pass
+    return result
+
+
 # Register the backup task in Celery autodiscovery without exposing secrets to the broker.
 from .backup import backup_operation  # noqa: E402,F401
+from .incidents import daily_digest, deliver_notification, recover_notifications  # noqa: E402,F401

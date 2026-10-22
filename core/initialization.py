@@ -69,6 +69,7 @@ TASKS = (
 )
 
 TASK_KIND_LABELS = {
+    "provider-sync": "同步平台信息", "git-sync": "同步 Git 提交",
     "documents": "同步政策正文", "licenses": "同步许可证策略", "restore": "备份恢复演练", "alert": "运维告警",
     "backup-test": "备份连接测试", "backup-apply": "启用备份", "backup-backup": "执行全量备份",
 }

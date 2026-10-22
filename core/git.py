@@ -42,6 +42,7 @@ class GitSnapshot:
     committed_at: datetime | None
     files: dict[str, str]
     decoding_errors: dict[str, str] = field(default_factory=dict)
+    raw_files: dict[str, bytes] = field(default_factory=dict)
 
 
 class GitLicenseInputError(ValueError):
@@ -51,7 +52,7 @@ class GitLicenseInputError(ValueError):
         self.evidence = {"reason": reason, "files": files}
 
 
-def fetch_snapshot(url, *, mode="licenses", branch=None):
+def fetch_snapshot(url, *, mode="licenses", branch=None, revision=None):
     url = validate_git_url(url, github_only=mode == "rules")
     settings.WORK_ROOT.mkdir(parents=True, exist_ok=True)
     env = {
@@ -83,17 +84,25 @@ def fetch_snapshot(url, *, mode="licenses", branch=None):
         git("init", "--bare")
         # Public fetch only; no checkout, hooks, LFS, submodules or repository code.
         ref = "HEAD" if not branch else f"refs/heads/{branch}"
+        if revision:
+            if not re.fullmatch(r"[a-f0-9]{40}|[a-f0-9]{64}", revision):
+                raise ValueError("Invalid pinned revision")
+            ref = revision
         if branch and (branch.startswith("-") or ".." in branch or any(c in branch for c in "~^:?*[\\")):
             raise ValueError("Invalid default branch")
         try:
             git("fetch", "--depth=1", "--filter=blob:none", "--no-tags", url, ref)
         except subprocess.CalledProcessError:
+            if revision:
+                raise
             # A successful public ref advertisement with no heads is an empty
             # repository, not a temporary network/authentication failure.
             if not git("ls-remote", "--heads", url).strip():
                 return GitSnapshot("", None, {})
             raise
         sha = git("rev-parse", "FETCH_HEAD").decode().strip()
+        if revision and sha != revision:
+            raise ValueError("Pinned revision mismatch")
         committed_at = datetime.fromisoformat(git("show", "-s", "--format=%cI", sha).decode().strip())
         entries = git("ls-tree", "-z", sha).split(b"\0")
         selected = []
@@ -126,6 +135,7 @@ def fetch_snapshot(url, *, mode="licenses", branch=None):
                 raise GitLicenseInputError(sha, committed_at, "too_many_license_candidates", [])
             raise ValueError("Too many policy/license files")
         files = {}
+        raw_files = {}
         decoding_errors = {}
         total = 0
         for path, oid in selected:
@@ -141,6 +151,7 @@ def fetch_snapshot(url, *, mode="licenses", branch=None):
                     )
                 raise ValueError("Policy/license text exceeds 1 MiB per file or 16 MiB total")
             raw = git("cat-file", "blob", oid)
+            raw_files[path] = raw
             try:
                 decoded = raw.decode("utf-8-sig")
                 if "\x00" in decoded:
@@ -153,4 +164,4 @@ def fetch_snapshot(url, *, mode="licenses", branch=None):
                 # unreadable terms or replace bytes with a falsely equivalent text.
                 files[path] = ""
                 decoding_errors[path] = hashlib.sha256(raw).hexdigest()
-        return GitSnapshot(sha, committed_at, files, decoding_errors)
+        return GitSnapshot(sha, committed_at, files, decoding_errors, raw_files)

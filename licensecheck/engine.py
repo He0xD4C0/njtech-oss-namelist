@@ -240,14 +240,17 @@ def _native_evidence(text: str) -> tuple[list[str], list[dict]]:
         expression = match.rule.license_expression
         if not expression:
             continue
+        match_labels = set()
         for key in match.rule.licensing.license_keys(expression):
             license_ = cache.db.get(key)
-            labels.add(license_.spdx_license_key if license_ and license_.spdx_license_key else key)
+            match_labels.add(license_.spdx_license_key if license_ and license_.spdx_license_key else key)
+        labels.update(match_labels)
         evidence.append({
             "expression": expression, "rule": match.rule.identifier,
             "matcher": match.matcher, "score": match.score(), "coverage": match.coverage(),
             "start_line": match.start_line, "end_line": match.end_line,
             "authorizes": False,
+            "labels": sorted(match_labels), "is_license_text": bool(match.rule.is_license_text),
         })
     return sorted(labels), evidence
 

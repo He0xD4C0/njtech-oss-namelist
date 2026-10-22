@@ -21,6 +21,48 @@ from .models import OAuthBinding
 class ProviderUnavailable(Exception):
     """Temporary/authentication/limit/invalid-response failures must not revoke eligibility."""
 
+    def __init__(self, message, *, code="temporary", retryable=True, retry_after=0):
+        super().__init__(message)
+        self.code = code
+        self.retryable = retryable
+        self.retry_after = retry_after
+
+
+def rate_limit_delay(response):
+    """Primary headers and secondary-limit errors have different 403 meanings."""
+    if response.status_code not in {403, 429}:
+        return None
+    try:
+        message = str(response.json().get("message", "")).lower()
+    except (ValueError, AttributeError):
+        message = ""
+    limited = (response.status_code == 429 or response.headers.get("X-RateLimit-Remaining") == "0"
+               or "Retry-After" in response.headers or "rate limit" in message or "abuse detection" in message)
+    if not limited:
+        return None
+    wait = 60
+    try:
+        wait = max(wait, int(response.headers.get("Retry-After", "0")))
+        if response.headers.get("X-RateLimit-Remaining") == "0":
+            wait = max(wait, int(response.headers.get("X-RateLimit-Reset", "0")) - int(timezone.now().timestamp()) + 1)
+    except ValueError:
+        pass
+    return wait
+
+
+def response_failure(response, *, refreshing=False):
+    """Classify without retaining response bodies, URLs or credentials."""
+    wait = rate_limit_delay(response)
+    if wait is not None:
+        return ProviderUnavailable("平台限流，稍后重试。", code="rate_limit", retry_after=wait)
+    if response.status_code >= 500:
+        return ProviderUnavailable("平台服务暂时不可用。")
+    if response.status_code == 401 or (refreshing and response.status_code == 400):
+        return ProviderUnavailable("授权已失效，等待账号重新授权。", code="reauthorization", retryable=False)
+    if response.status_code == 403:
+        return ProviderUnavailable("平台应用权限不足，请检查配置。", code="configuration", retryable=False)
+    return ProviderUnavailable("平台响应异常，稍后重试。")
+
 
 class RepositoryIneligible(Exception):
     """Definitively no longer a directly owned public Git repository."""
@@ -152,27 +194,40 @@ class BaseClient:
         return response
 
     def _refresh_locked(self, binding):
-        if not self.token_url or not binding.encrypted_refresh_token:
-            raise ProviderUnavailable("平台授权已过期，请重新授权；暂不改变收录状态。")
+        refresh_token = decrypt(binding.encrypted_refresh_token) if binding.encrypted_refresh_token else ""
+        if not self.token_url or not refresh_token:
+            raise ProviderUnavailable("平台授权已过期，等待重新授权。", code="reauthorization", retryable=False)
         client_id = get_setting(f"oauth_{self.platform}_client_id")
         client_secret = get_setting(f"oauth_{self.platform}_client_secret")
         if not client_id or not client_secret:
-            raise ProviderUnavailable("平台 OAuth 应用暂未配置。")
+            raise ProviderUnavailable("平台 OAuth 应用暂未配置。", code="configuration", retryable=False)
         response = self._request(
             "POST",
             self.token_url,
             data={
                 "grant_type": "refresh_token",
-                "refresh_token": decrypt(binding.encrypted_refresh_token),
+                "refresh_token": refresh_token,
                 "client_id": client_id,
                 "client_secret": client_secret,
             },
             headers={"Accept": "application/json"},
         )
+        try:
+            error_code = response.json().get("error")
+        except (ValueError, AttributeError):
+            error_code = None
+        if error_code in {"incorrect_client_credentials", "invalid_client", "unauthorized_client"}:
+            raise ProviderUnavailable("平台 OAuth 应用凭据无效。", code="configuration", retryable=False)
         if response.status_code != 200:
-            raise ProviderUnavailable("平台授权暂不可刷新，请重新授权；暂不改变收录状态。")
+            raise response_failure(response, refreshing=True)
         try:
             data = response.json()
+            if not isinstance(data, dict):
+                raise ValueError
+            if data.get("error") in {"bad_refresh_token", "invalid_refresh_token", "invalid_grant", "expired_token"}:
+                raise ProviderUnavailable("授权已失效，等待账号重新授权。", code="reauthorization", retryable=False)
+            if data.get("error") in {"incorrect_client_credentials", "invalid_client", "unauthorized_client"}:
+                raise ProviderUnavailable("平台 OAuth 应用凭据无效。", code="configuration", retryable=False)
             access = data["access_token"]
             if not isinstance(access, str) or not access:
                 raise ValueError
@@ -181,9 +236,9 @@ class BaseClient:
                 raise ValueError
             expires_at = timezone.now() + timedelta(seconds=int(expires)) if expires else None
             refresh = data.get("refresh_token")
-            if refresh is not None and not isinstance(refresh, str):
+            if refresh is not None and (not isinstance(refresh, str) or not refresh):
                 raise ValueError
-        except (ValueError, TypeError, KeyError):
+        except (ValueError, TypeError, KeyError, OverflowError):
             raise ProviderUnavailable("平台刷新响应无效；保留原凭据与最近有效状态。") from None
         binding.encrypted_access_token = encrypt(access)
         if refresh:
@@ -194,19 +249,22 @@ class BaseClient:
         )
         return access
 
-    def _access_token(self, *, refresh=False):
+    def _access_token(self, *, refresh=False, rejected_token=None):
         try:
             with transaction.atomic():
                 binding = OAuthBinding.objects.select_for_update().get(pk=self.binding.pk)
+                access = decrypt(binding.encrypted_access_token)
+                if refresh and rejected_token is not None and access != rejected_token:
+                    return access
                 if refresh or (
                     binding.expires_at and binding.expires_at <= timezone.now() + timedelta(seconds=30)
                 ):
                     return self._refresh_locked(binding)
-                return decrypt(binding.encrypted_access_token)
+                return access
         except OAuthBinding.DoesNotExist:
-            raise ProviderUnavailable("平台已解绑。") from None
+            raise ProviderUnavailable("平台已解绑。", code="reauthorization", retryable=False) from None
         except InvalidToken:
-            raise ProviderUnavailable("平台凭据不可解密，需要服务器配置修复。") from None
+            raise ProviderUnavailable("平台凭据不可解密，需要服务器配置修复。", code="configuration", retryable=False) from None
 
     def _json(self, path, *, params=None, authenticated=False, repository=False, empty_commit=False):
         # Public GitHub reads still use this user's minimal OAuth identity budget,
@@ -215,10 +273,11 @@ class BaseClient:
         authenticated = authenticated or self.platform == "github"
         headers = {"Accept": "application/json"}
         if authenticated:
-            headers["Authorization"] = f"Bearer {self._access_token()}"
+            access = self._access_token()
+            headers["Authorization"] = f"Bearer {access}"
         response = self._request("GET", self.api_url + path, params=params, headers=headers)
         if authenticated and response.status_code == 401 and self.token_url:
-            headers["Authorization"] = f"Bearer {self._access_token(refresh=True)}"
+            headers["Authorization"] = f"Bearer {self._access_token(refresh=True, rejected_token=access)}"
             response = self._request("GET", self.api_url + path, params=params, headers=headers)
         if empty_commit and response.status_code in {404, 409}:
             return None
@@ -226,7 +285,7 @@ class BaseClient:
             raise RepositoryIneligible("仓库已删除或不再公开。")
         if response.status_code != 200:
             # 401/403/429/5xx are never evidence that a repository became private.
-            raise ProviderUnavailable("平台认证、限流或网络异常；保留最近有效状态。")
+            raise response_failure(response)
         try:
             return response.json()
         except ValueError:
@@ -245,7 +304,7 @@ class BaseClient:
                 raise ValueError
             return identity
         except (KeyError, TypeError, ValueError):
-            raise ProviderUnavailable("OAuth 身份与绑定不一致，请重新授权。") from None
+            raise ProviderUnavailable("OAuth 身份与绑定不一致，请重新授权。", code="reauthorization", retryable=False) from None
 
     def _pages(self, path, params=None):
         for page in range(1, 1001):
@@ -286,6 +345,7 @@ class BaseClient:
 
 
 class GitHubClient(BaseClient):
+    token_url = "https://github.com/login/oauth/access_token"
     platform, host, api_url = "github", "github.com", "https://api.github.com"
 
     def _parse(self, data):

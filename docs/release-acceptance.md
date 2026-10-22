@@ -55,6 +55,12 @@ docker compose --env-file runtime.env --env-file images.env -f compose.yaml run 
 
 ## 外部集成与运行检查
 
+### 许可证审批与故障记录迁移
+
+包含 `core.0008_syncrun_detail_incident_notificationdelivery` 和 `repositories.0005_auditdispatch_attempts_auditdispatch_execution_token_and_more` 的版本新增故障/通知、原文快照、审批任务及机审执行状态。先停止旧 Web、Worker、Scanner、Beat 和维护消费者并保留可恢复备份，再执行迁移；不得混跑旧消费者。迁移保留既有证据与公开状态，并将历史已完成派发标记为完成。初始化安装审批补偿、通知补偿与每日 09:00 汇总任务，检查三项均存在且只有一个 Beat。
+
+策略写入令牌由超管单独配置；没有令牌时原文可查看，审批明确失败且不写仓库。首笔真实审批须回读远端提交的正文和来源清单、实际激活策略与最终复审结果；测试替身通过或镜像健康不能替代这三项。恢复诊断升级不代表原恢复失败已修复。
+
 操作者或外部 CD 自行完成并保留证据，本仓库不生成验收凭证：
 
 - 邮箱注册、真实邮件确认、设置密码、Turnstile 拒绝/通过、限流及真实客户端 IP。

@@ -175,6 +175,27 @@ def test_failed_requeue_keeps_original_record_and_is_retryable():
         assert queue_sync("documents", run.pk)[1]
 
 
+@pytest.mark.parametrize("status", ["queued", "retrying", "running"])
+def test_pending_approval_sync_can_recover_lost_delivery_without_new_generation(status):
+    run, source, generation = pending("licenses", status=status)
+    SyncRun.objects.filter(pk=run.pk).update(attempts=2)
+    with patch("core.tasks.sync_license_policy.delay") as send:
+        recovered, enqueued = queue_sync("licenses")
+        assert enqueued and recovered.pk == run.pk
+        assert not queue_sync("licenses")[1]
+        send.assert_called_once_with(run_id=run.pk, source=source, generation=generation)
+    run.refresh_from_db()
+    assert run.status == "queued" and run.attempts == 2
+
+
+def test_lost_sync_processes_cannot_reset_retry_budget():
+    run, source, generation = pending("licenses")
+    SyncRun.objects.filter(pk=run.pk).update(attempts=5)
+    work = Mock()
+    assert execute_sync(sync_documents, "licenses", work, run.pk, source, generation) == "failed"
+    work.assert_not_called()
+
+
 def test_setup_recovery_requires_authorization_and_has_read_only_status(client, settings):
     from allauth.account.models import EmailAddress
 

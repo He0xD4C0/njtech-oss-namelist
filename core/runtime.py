@@ -5,6 +5,7 @@ from .crypto import decrypt, encrypt
 from .models import AuditEvent, PolicyDocument, RuntimeSetting, SiteState, SourceSyncState, SyncRun
 
 SECRET_KEYS = {
+    "license_write_token",
     "smtp_password",
     "s3_access_key",
     "s3_secret_key",
@@ -16,6 +17,7 @@ SECRET_KEYS = {
     "policy_webhook_secret",
 }
 SETTING_KEYS = {
+    "license_write_token",
     "site_logo_data",
     "site_logo_revision",
     "operator_name",

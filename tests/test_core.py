@@ -246,7 +246,7 @@ def test_gitlab_standard_push_reads_project_default_branch(client, initialized_s
 def test_admin_cannot_edit_runtime_and_must_have_verified_email(client, initialized_site):
     admin = verified_user(is_staff=True)
     client.force_login(admin)
-    assert client.get("/manage/settings/").status_code == 302
+    assert client.get("/manage/settings/", follow=True).status_code == 403
     assert client.get("/admin/core/user/").status_code == 403
     EmailAddress.objects.filter(user=admin).delete()
     assert client.get("/account/profile/").url.endswith("/accounts/email/")
