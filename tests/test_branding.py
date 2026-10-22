@@ -79,7 +79,7 @@ def test_admin_upload_requires_superuser_and_updates_unfold(client, initialized_
     user = User.objects.create_user('normal', email='normal@example.test', password='test-password')
     EmailAddress.objects.create(user=user, email=user.email, primary=True, verified=True)
     client.force_login(user)
-    assert client.post('/manage/settings/', {'action': 'save', 'group': 'branding', 'logo': upload()}).status_code == 302
+    assert client.post('/manage/settings/', {'action': 'save', 'group': 'branding', 'logo': upload()}).status_code == 403
     assert not logo_url()
     user = User.objects.create_superuser('admin', password='test-password')
     client.force_login(user)
