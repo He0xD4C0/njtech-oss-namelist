@@ -21,7 +21,7 @@ from .models import OAuthBinding
 class ProviderUnavailable(Exception):
     """Temporary/authentication/limit/invalid-response failures must not revoke eligibility."""
 
-    def __init__(self, message, *, code="temporary", retryable=True, retry_after=0):
+    def __init__(self, message="", *, code="temporary", retryable=True, retry_after=0):
         super().__init__(message)
         self.code = code
         self.retryable = retryable
